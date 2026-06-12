@@ -1,0 +1,37 @@
+{
+  "name": "usefull-agent-skills",
+  "version": "1.0.0",
+  "description": "Reusable Claude Code skills: Atlassian CLI, AWS credential patterns, Databricks CLI, cross-repo epic review, unattended Bash safety, and more.",
+  "author": {
+    "name": "Georg Hildebrand",
+    "url": "https://github.com/georghildebrand"
+  },
+  "homepage": "https://github.com/georghildebrand/usefull_agent_skills",
+  "repository": "https://github.com/georghildebrand/usefull_agent_skills",
+  "license": "MIT",
+  "keywords": [
+    "atlassian",
+    "aws",
+    "databricks",
+    "code-review",
+    "productivity"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Usefull Agent Skills",
+    "shortDescription": "Reusable skills for Atlassian CLI, AWS, Databricks, and agent workflows.",
+    "longDescription": "A collection of reusable skills covering Atlassian CLI cross-org workflows, AWS credential resolution, Databricks CLI operations, safe Bash for unattended sessions, cross-repo epic review methodology, and agent memory hygiene.",
+    "developerName": "Georg Hildebrand",
+    "category": "Productivity",
+    "capabilities": [
+      "Write",
+      "Code"
+    ],
+    "websiteURL": "https://github.com/georghildebrand/usefull_agent_skills",
+    "privacyPolicyURL": "https://github.com/georghildebrand/usefull_agent_skills/blob/main/README.md",
+    "termsOfServiceURL": "https://github.com/georghildebrand/usefull_agent_skills/blob/main/README.md",
+    "defaultPrompt": [],
+    "screenshots": [],
+    "brandColor": "#3B82F6"
+  }
+}
