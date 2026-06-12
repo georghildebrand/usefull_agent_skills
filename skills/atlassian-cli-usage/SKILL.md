@@ -536,16 +536,15 @@ either. Auth via `ATLASSIAN_API_TOKEN` sourced from `~/.env.atlassian`.
 
 ```bash
 source ~/.env.atlassian
-EMAIL="georg.hildebrand@centricsoftware.com"
-INSTANCE="centric8.atlassian.net"
+# provides ATLASSIAN_API_TOKEN, ATLASSIAN_EMAIL, ATLASSIAN_INSTANCE (or set manually)
 ```
 
 ### List attachments on an issue
 
 ```bash
 source ~/.env.atlassian
-curl -s -u "georg.hildebrand@centricsoftware.com:${ATLASSIAN_API_TOKEN}" \
-  "https://centric8.atlassian.net/rest/api/3/issue/<KEY>?fields=attachment" \
+curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+  "https://<your-instance>.atlassian.net/rest/api/3/issue/<KEY>?fields=attachment" \
   | python3 -c "
 import json, sys
 for a in json.load(sys.stdin)['fields'].get('attachment', []):
@@ -557,8 +556,8 @@ for a in json.load(sys.stdin)['fields'].get('attachment', []):
 
 ```bash
 source ~/.env.atlassian
-curl -s -L -u "georg.hildebrand@centricsoftware.com:${ATLASSIAN_API_TOKEN}" \
-  "https://centric8.atlassian.net/rest/api/3/attachment/content/<ATTACHMENT_ID>" \
+curl -s -L -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+  "https://<your-instance>.atlassian.net/rest/api/3/attachment/content/<ATTACHMENT_ID>" \
   -o /tmp/<filename>
 ```
 
@@ -568,8 +567,8 @@ curl -s -L -u "georg.hildebrand@centricsoftware.com:${ATLASSIAN_API_TOKEN}" \
 
 ```bash
 source ~/.env.atlassian
-curl -s -u "georg.hildebrand@centricsoftware.com:${ATLASSIAN_API_TOKEN}" \
-  "https://centric8.atlassian.net/rest/api/3/issue/<KEY>/comment/<COMMENT_ID>" \
+curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+  "https://<your-instance>.atlassian.net/rest/api/3/issue/<KEY>/comment/<COMMENT_ID>" \
   | python3 -c "
 import json, sys
 def text(n):
