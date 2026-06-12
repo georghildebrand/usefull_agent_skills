@@ -526,6 +526,91 @@ above is the only reliable path.
 
 ---
 
+## Jira REST API fallback — attachments and full comment body
+
+`atlassian-cli` does not expose attachment metadata and truncates comment
+bodies to a 50-char preview. Use the Jira REST API v3 directly when you need
+either. Auth via `ATLASSIAN_API_TOKEN` sourced from `~/.env.atlassian`.
+
+**Never read `~/.env.atlassian` — source it:**
+
+```bash
+source ~/.env.atlassian
+EMAIL="georg.hildebrand@centricsoftware.com"
+INSTANCE="centric8.atlassian.net"
+```
+
+### List attachments on an issue
+
+```bash
+source ~/.env.atlassian
+curl -s -u "georg.hildebrand@centricsoftware.com:${ATLASSIAN_API_TOKEN}" \
+  "https://centric8.atlassian.net/rest/api/3/issue/<KEY>?fields=attachment" \
+  | python3 -c "
+import json, sys
+for a in json.load(sys.stdin)['fields'].get('attachment', []):
+    print(f\"{a['id']} | {a['filename']} | {a['mimeType']} | {a['size']}B | {a['content']}\")
+"
+```
+
+### Download an attachment
+
+```bash
+source ~/.env.atlassian
+curl -s -L -u "georg.hildebrand@centricsoftware.com:${ATLASSIAN_API_TOKEN}" \
+  "https://centric8.atlassian.net/rest/api/3/attachment/content/<ATTACHMENT_ID>" \
+  -o /tmp/<filename>
+```
+
+`-L` is required — Jira returns a 302 redirect to the CDN URL.
+
+### Read full comment body
+
+```bash
+source ~/.env.atlassian
+curl -s -u "georg.hildebrand@centricsoftware.com:${ATLASSIAN_API_TOKEN}" \
+  "https://centric8.atlassian.net/rest/api/3/issue/<KEY>/comment/<COMMENT_ID>" \
+  | python3 -c "
+import json, sys
+def text(n):
+    if n.get('type') == 'text': return n.get('text','')
+    if n.get('type') == 'mention': return n['attrs'].get('text','')
+    if n.get('type') == 'hardBreak': return '\n'
+    r = ''.join(text(c) for c in n.get('content', []))
+    if n.get('type') in ('paragraph','heading','listItem'): r += '\n'
+    return r
+print(text(json.load(sys.stdin)['body']))
+"
+```
+
+The comment body is Atlassian Document Format (ADF) — a nested JSON AST.
+Direct string access fails; the recursive `text()` walk above is the correct
+pattern.
+
+### Comment IDs
+
+Get them from `atlassian-cli jira issue comments list <KEY> --format json`
+— the `id` field.
+
+---
+
+## Native CLI support (after PR #64 merges)
+
+PR [omar16100/atlassian-cli#64](https://github.com/omar16100/atlassian-cli/pull/64)
+adds both features to the CLI directly:
+
+```bash
+# Attachments in issue get (all non-markdown formats)
+atlassian-cli jira issue get <KEY> --format json | jq '.attachments'
+
+# Full comment body
+atlassian-cli jira issue comments list <KEY> --full --format json
+```
+
+Until merged, use the REST API patterns above.
+
+---
+
 ## Cross-references
 
 - `atlassian-cli-setup` — first-time auth, token sourcing, profile creation,
