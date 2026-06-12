@@ -15,6 +15,7 @@ Reusable Claude Code skills collection. Each skill lives in `skills/<name>/SKILL
 | [`claude-code-unattended-bash`](skills/claude-code-unattended-bash/SKILL.md) | Three Bash patterns that block unattended sessions on approval prompts | Writing Bash for overnight jobs, background agents, or `/loop` polling |
 | [`cross-repo-epic-review`](skills/cross-repo-epic-review/SKILL.md) | Four-round review structure for multi-repo epics | Reviewing a cross-team epic or deciding whether to split a phased epic |
 | [`agent-memory-hygiene`](skills/agent-memory-hygiene/SKILL.md) | When and how to commit to a project memory system | Managing memory item quality, session boundaries, and retrieval accuracy |
+| [`nono-usage`](skills/nono-usage/SKILL.md) | Setup nono for Claude Code: profile pack, shell wrapper, ad-hoc path grants, custom profiles | Setting up nono, adding project paths, diagnosing denied paths before a session starts |
 
 ## Contributing
 
