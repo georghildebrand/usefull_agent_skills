@@ -135,6 +135,50 @@ A Bitbucket pipeline with a manual gate (e.g. `bitbucket-pipelines.yml:167-186` 
 
 ---
 
+## Gap 8 — `--field 'parent={"key":"..."}'` silently dropped on Story create/update when parent isn't on the project's screen 🔴
+
+**Observed (2026-06-17, SDAI project on Centric8 Jira):**
+
+```
+$ atlassian-cli jira issue create \
+    --project SDAI --issue-type "Story" \
+    --summary "..." --description "..." \
+    --field 'parent={"key":"SDAI-68"}'
+INFO Issue created successfully key=SDAI-463
+✅ Created issue: SDAI-463
+
+$ atlassian-cli jira issue update SDAI-463 --field 'parent={"key":"SDAI-68"}'
+ERROR Failed to parse JSON response: error decoding response body  # known 204 false alarm
+
+# Verify
+$ atlassian-cli jira issue search --jql "key = SDAI-463" -f json | jq '.[].parent'
+null  # parent NEVER set — silently dropped on both create AND update
+```
+
+Subsequent JQL `parent = SDAI-68` confirms the issue is orphaned.
+
+Root cause: the SDAI project's Story issue type doesn't have the `parent` field on its create/edit screen (workflow-configured restriction). Jira accepts the API call but ignores the `parent` value, returning success without setting it. The CLI relays the success and the caller has no signal that the linkage failed.
+
+REST PUT directly to `/rest/api/3/issue/<KEY>` with `{"fields":{"parent":{"key":"..."}}}` also fails (`404` "Issue does not exist or you do not have permission to see it.") — the modern `parent` field is screen-permission-gated too.
+
+**Why it matters:**
+- Programmatic ticket creation cannot establish epic linkage without manual UI follow-up.
+- Tickets are silently orphaned. Epic boards and "what's under X epic" reports miss them entirely until someone notices.
+- No error signal at any layer — CLI exits 0, response body parses, status code is 2xx. Pure silent failure.
+- Affects every cross-org Jira instance with workflow-restricted Story creation screens (common in mature setups).
+
+**Proposed fix:**
+- Issue-create response should surface the **persisted** parent value, not just the request. Emit `parent: SDAI-68` on success, `parent: null` if dropped — caller can fail-fast.
+- If the create-screen config rejects a passed `--field`, surface a structured warning: `WARN '--field parent' silently dropped: Story type has no 'parent' field on the create screen for project SDAI.`
+- Alternative: pre-check via `GET /rest/api/3/issue/createmeta?projectKeys=<P>&issuetypeNames=<T>&expand=projects.issuetypes.fields` before submitting; refuse the call if the supplied `--field` isn't in the meta.
+- Companion `--strict-fields` flag for callers that want the call to **fail** rather than warn when a field is silently dropped.
+
+**Workaround today:**
+- After every programmatic create/update with `--field parent`, verify via JQL: `atlassian-cli jira issue search --jql "parent = <EPIC> AND key = <NEW_KEY>"`. Empty result = parent didn't stick → manual UI reparent.
+- For known-affected projects, skip `--field 'parent='` at create time entirely; create first, then reparent via UI.
+
+---
+
 ## Filing order suggestion
 
 Group A — Confluence parity: Gaps 1, 2, 3, 4, 5 → one issue titled
@@ -145,6 +189,9 @@ Group B — Trivial UX: Gap 6 → small standalone issue,
 
 Group C — Bitbucket pipeline step control: Gap 7 → standalone,
 `[FEATURE] Continue a Bitbucket pipeline past a manual step from the CLI`.
+
+Group D — Jira write-path observability: Gap 8 → standalone,
+`[FEATURE] Surface silently-dropped --field values (e.g. parent) on screen-gated Jira mutations`.
 
 ---
 
