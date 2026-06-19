@@ -161,9 +161,9 @@ Error messages decode like this:
 
 | Error | Cause | Fix |
 |---|---|---|
-| `unexpected argument '--workspace' found / tip: 'bitbucket --workspace' exists` | `--workspace` placed before the `bitbucket` subcommand | Move it after `bitbucket` (or after `pr create`) |
-| `unexpected argument '--repo' found / tip: to pass '--repo' as a value, use '-- --repo'` | `--repo` used on `pr create` where repo is positional | Drop `--repo`, append `<repo-slug>` as the last positional arg |
-| `unexpected argument '--close-source-branch' found` | Flag does not exist on `pr create` | Configure "Close source branch after merge" as a repo default in Bitbucket UI, or set it via the REST API after PR creation |
+| `unexpected argument '--workspace' found / tip: 'bitbucket --workspace' exists` | `--workspace` placed before `bitbucket` subcommand | Move after `bitbucket` (or after `pr create`) |
+| `unexpected argument '--repo' found / tip: to pass '--repo' as a value, use '-- --repo'` | `--repo` used on `pr create` where repo is positional | Drop `--repo`, append `<repo-slug>` as last positional arg |
+| `unexpected argument '--close-source-branch' found` | Flag does not exist on `pr create` | Configure "Close source branch after merge" as repo default in Bitbucket UI, or set via REST API after PR creation |
 
 ### Multi-line description via inline string
 
@@ -296,7 +296,7 @@ Distinguish real failure from this false alarm:
 | Message contains... | Meaning |
 |---|---|
 | `Invalid response format: error decoding response body` | False alarm — likely success, verify with GET |
-| `Invalid request: {"errorMessages":[...]}` or similar JSON-from-Jira | Real failure — read the message |
+| `Invalid request: {"errorMessages":[...]}` or similar JSON-from-Jira | Real failure — read message |
 
 **Always verify with follow-up GET before reacting.** Same pattern applies to
 `jira issue delete`.
