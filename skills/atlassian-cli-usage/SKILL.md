@@ -126,7 +126,7 @@ atlassian-cli bitbucket pr create --help
 | `--title` | PR title |
 | `--source` | Feature branch |
 | `--destination` | Target branch (usually `main`) |
-| `--workspace` | Workspace slug — required for cross-org, see profile section above |
+| `--workspace` | Workspace slug — required for cross-org, see profile section |
 
 `--description`, `--reviewers <uuid,uuid>`, `-f json|yaml|markdown` optional but
 useful. Reviewers take **UUIDs**, not usernames — find via `bitbucket whoami`
