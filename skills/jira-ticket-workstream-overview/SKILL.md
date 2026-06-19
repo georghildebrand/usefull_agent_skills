@@ -87,6 +87,13 @@ Terse, table-driven:
 1. **Active now** — In Progress / In Review / To Do, table: key | status | what | workstream.
 2. **Paused** — cold-but-owned tickets.
 3. **Workstreams** — each cluster with its tickets + backing memory item(s); flag hot vs cold.
+3b. **Dependency tree** — render focus-topic → epic → story → sub-task as ASCII tree. One node per line:
+   `KEY [status] short-name — short desc`
+   - `short-name` = a kebab handle you assign (e.g. `env-guard`, `s3-cutover`) — a talk-aid, not a Jira field; the KEY stays the real identifier.
+   - `short desc` = one-clause what-it-does, from the ticket summary.
+   - Mark real blockers with `⟸ blocks X` / `⟸ blocked-by X`; parent/epic containment is plain indentation. Distinguish **explicit** links (the summary or memory states it) from **inferred** (epic membership / naming) — a JQL `issue search` returns no `issuelinks`, so most arrows are inferred until you pull links per ticket.
+   - Tag external / cross-team deps with their owner.
+   - Optional: add a small `mermaid graph LR` for the hottest stream's critical path.
 4. **Blind spots** ⚠️ — cross-check Jira state against memory:
    - Ticket status lagging reality (memory says resolved, ticket still open).
    - Reported-but-unassigned children under owned parent (filed ≠ staffed).
