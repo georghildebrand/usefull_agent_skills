@@ -179,6 +179,57 @@ REST PUT directly to `/rest/api/3/issue/<KEY>` with `{"fields":{"parent":{"key":
 
 ---
 
+## Gap 9 — `jira issue get` output omits `parent` field even when set 🔴
+
+**Observed (2026-06-18, SDAI project on Centric8 Jira):**
+
+```
+$ atlassian-cli jira issue create \
+    --project SDAI --issue-type "Sub-task" \
+    --summary "..." --description "..." \
+    --field 'parent={"key":"SDAI-454"}'
+INFO Issue created successfully key=SDAI-471
+✅ Created issue: SDAI-471
+
+# Verify parent linkage — GET shows no parent
+$ atlassian-cli jira issue get SDAI-471 -f json | jq '.parent'
+null
+
+# But JQL confirms parent IS set correctly
+$ atlassian-cli jira issue search --jql "parent = SDAI-454 AND key = SDAI-471"
+SDAI-471 found ✓
+```
+
+The Sub-task's parent linkage was set correctly by the create call — JQL search confirms it — but `jira issue get` JSON output does not include the `parent` field in its default response. Same behavior across 5 newly-created Sub-tasks in one batch.
+
+**Distinct from Gap 8:** Gap 8 = `--field parent` *silently dropped* on screen-gated Stories (parent never set). Gap 9 = parent IS set but GET *doesn't show it* (observability gap). Both can hit simultaneously, which is the worst case — the caller can't tell which failure they're seeing.
+
+**Why it matters:**
+- Verification after every parent-setting call requires a JQL roundtrip — extra request per ticket, extra latency in workflows that file many tickets in parallel.
+- Workflow agents must encode "GET is unreliable for parent — always use JQL" as tribal knowledge. Easy to forget.
+- Combined with the Gap 8 silent-drop class, the only authoritative parent check is JQL. The natural CLI affordance (`issue get`) lies by omission.
+- Affects any orchestration that files Sub-tasks/Stories and needs to verify epic linkage programmatically (e.g. post-mortem follow-up automation, sprint-prep ticket batching, restructure migrations).
+
+**Proposed fix:**
+- Include `parent` as a top-level field in `jira issue get` JSON output (alongside `assignee`, `reporter`, `status` etc.) — populated from `fields.parent.key` when present, `null` otherwise.
+- Mirror in tabular output as a `parent` column (omit when `null` if it clutters; show when set).
+- Companion: `--include parent` / `--fields parent,status,assignee` flag for explicit field selection on GET, consistent with Jira REST API's `fields` query parameter.
+
+**Workaround today:**
+```bash
+# Verify parent after create
+atlassian-cli jira issue search --jql "parent = <EXPECTED_PARENT> AND key = <NEW_KEY>" -f json \
+  | jq 'length > 0'
+# returns true if parent linkage is set, false otherwise
+```
+
+For batch verification, build a single JQL:
+```bash
+atlassian-cli jira issue search --jql "key in (SDAI-470, SDAI-471, SDAI-473) AND parent = SDAI-454"
+```
+
+---
+
 ## Filing order suggestion
 
 Group A — Confluence parity: Gaps 1, 2, 3, 4, 5 → one issue titled
@@ -192,6 +243,10 @@ Group C — Bitbucket pipeline step control: Gap 7 → standalone,
 
 Group D — Jira write-path observability: Gap 8 → standalone,
 `[FEATURE] Surface silently-dropped --field values (e.g. parent) on screen-gated Jira mutations`.
+
+Group E — Jira read-path observability: Gap 9 → standalone,
+`[FEATURE] Expose parent field in jira issue get output`.
+(Filing-suggestion: link Gap 8 + Gap 9 in upstream issue bodies — same root concern, both directions of write-then-verify roundtrip.)
 
 ---
 

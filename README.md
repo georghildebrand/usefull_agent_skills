@@ -16,6 +16,7 @@ Reusable Claude Code skills collection. Each skill lives in `skills/<name>/SKILL
 | [`cross-repo-epic-review`](skills/cross-repo-epic-review/SKILL.md) | Four-round review structure for multi-repo epics | Reviewing a cross-team epic or deciding whether to split a phased epic |
 | [`agent-memory-hygiene`](skills/agent-memory-hygiene/SKILL.md) | When and how to commit to a project memory system | Managing memory item quality, session boundaries, and retrieval accuracy |
 | [`nono-usage`](skills/nono-usage/SKILL.md) | Setup nono for Claude Code: profile pack, shell wrapper, ad-hoc path grants, custom profiles | Setting up nono, adding project paths, diagnosing denied paths before a session starts |
+| [`jira-ticket-workstream-overview`](skills/jira-ticket-workstream-overview/SKILL.md) | Cross-reference your Jira tickets against agent-memory workstreams; status, upcoming, blind spots | You want an overview of where your tickets stand vs your current focus areas |
 
 ## Contributing
 

@@ -7,11 +7,11 @@ description: Use when writing or reviewing skills to ensure no internal, confide
 
 ## Overview
 
-Skills are reusable across projects and contexts. **Never embed internal company data, credentials, or confidential information.** Skills become public references—treat them like published documentation.
+Skills reusable across projects and contexts. **Never embed internal company data, credentials, or confidential information.** Skills become public references—treat like published documentation.
 
 ## When to Use
 
-**Before writing ANY skill:**
+**Before writing ANY skill, strip:**
 - Company names, product names (generalize: "example company", "SaaS platform")
 - Ticket IDs, issue numbers (use placeholder: `<TICKET_ID>`)
 - Employee names, roles, internal teams
@@ -31,7 +31,7 @@ Skills are reusable across projects and contexts. **Never embed internal company
 
 **Skills = Published Documentation**
 
-Once written, a skill is discoverable across projects, shared with other agents, potentially open-sourced. Treat confidential information as FORBIDDEN.
+Once written, skill discoverable across projects, shared with other agents, potentially open-sourced. Treat confidential info as FORBIDDEN.
 
 ### What's OK
 
@@ -111,13 +111,13 @@ At <Company Name>, this saved 3 hours per week on debugging.
 - [ ] No internal profile names, workspace slugs, or note identifiers
 - [ ] No hidden memory IDs, note keys, or other traceable internal IDs
 
-**Red flag:** If you had to anonymize this before sharing with a colleague outside your company, remove it from the skill.
+**Red flag:** If you'd anonymize this before sharing with colleague outside your company, remove from skill.
 
 ## Handling Real Examples
 
-**Problem:** You want to share a concrete example, but it contains internal data.
+**Problem:** Want to share concrete example, but contains internal data.
 
-**Solution:** Create a synthetic example that replicates the pattern without revealing secrets:
+**Solution:** Create synthetic example replicating pattern without revealing secrets:
 
 ```markdown
 # ❌ BAD: Real internal example with company context
@@ -145,11 +145,11 @@ databricks jobs get-run --run-id <RUN_ID> \
 - Can reference internal processes (CLAUDE.md is better for this)
 - Don't reference specific company data without strong reason
 
-**Best practice:** Write all skills as if they'll go public. If information is too sensitive to publish, it doesn't belong in a skill—put it in CLAUDE.md (project-specific instructions) instead.
+**Best practice:** Write all skills as if going public. Info too sensitive to publish doesn't belong in skill—put in CLAUDE.md (project-specific instructions) instead.
 
 ## When to Use CLAUDE.md Instead
 
-**If you're writing about:**
+**If writing about:**
 - Internal process workflows (how YOUR team works)
 - Project-specific conventions (ticket naming, code standards)
 - Confidential business context (why this project exists)
@@ -174,7 +174,7 @@ databricks jobs get-run --run-id <RUN_ID> \
 
 ## Red Flags - STOP and Redact
 
-If you find yourself writing ANY of these:
+If writing ANY of these:
 - Real account/workspace/job IDs
 - Company or product names
 - Employee names or titles
@@ -190,4 +190,4 @@ If you find yourself writing ANY of these:
 **Before:** Skills embedded project context, leaked account IDs, exposed internal processes
 **After:** Skills are reusable, safe to share, solve general problems for anyone
 
-Skills become value over time only if they're portable. Confidential content reduces reusability and creates liability.
+Skills gain value over time only if portable. Confidential content reduces reusability and creates liability.

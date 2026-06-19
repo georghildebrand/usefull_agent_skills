@@ -10,14 +10,14 @@ description: >
 
 ## The core tradeoff
 
-**Over-committing** creates noise that degrades retrieval — future sessions
-surface false matches and spend tokens on irrelevant context.
+**Over-committing** makes noise, degrades retrieval — future sessions
+surface false matches, spend tokens on irrelevant context.
 
-**Under-committing** loses learnings permanently — the next session re-derives
-the same thing from scratch.
+**Under-committing** loses learnings forever — next session re-derives
+same thing from scratch.
 
-The goal: commit at the right granularity so the system gets smarter over time
-without accumulating garbage.
+Goal: commit at right granularity so system gets smarter over time,
+no garbage buildup.
 
 ---
 
@@ -25,25 +25,25 @@ without accumulating garbage.
 
 ### Do commit
 
-- **Session boundary** — end of a meaningful work block: PR merged, epic
-  completed, debugging session resolved, major decision made
-- **Hard-won lesson** — something that took 30+ minutes to figure out and would
-  take the same time again
-- **Non-obvious gotcha** — a tool flag, API behavior, or failure mode that
-  isn't in the official docs
-- **Decision rationale** — why an architectural choice was made (the code shows
+- **Session boundary** — end of meaningful work block: PR merged, epic
+  done, debugging session resolved, major decision made
+- **Hard-won lesson** — took 30+ minutes to figure out, would
+  take same time again
+- **Non-obvious gotcha** — tool flag, API behavior, or failure mode
+  not in official docs
+- **Decision rationale** — why an architectural choice was made (code shows
   *what*, memory preserves *why*)
 
 ### Do not commit
 
-- After every individual git commit — that's the commit message's job
+- After every individual git commit — commit message's job
 - Ephemeral task state ("currently working on X") — belongs in task tracking,
   not memory
-- Things already documented in the codebase or official docs
-- Intermediate investigation steps that didn't lead anywhere
+- Things already documented in codebase or official docs
+- Intermediate investigation steps that led nowhere
 
-**Rule of thumb:** if you'd write it in a commit message, it goes in git.
-If you'd write it in an ADR, it goes in memory.
+**Rule of thumb:** if you'd write it in commit message → git.
+If you'd write it in an ADR → memory.
 
 ---
 
@@ -57,14 +57,14 @@ Work block     → code, debug, research, decide
 Session end    → commit episode (record what was learned, decided, left open)
 ```
 
-Do not run the commit step after every sub-task within a session. One commit
-per session boundary is the right cadence for coding-heavy work.
+Do not run commit step after every sub-task within a session. One commit
+per session boundary = right cadence for coding-heavy work.
 
 ---
 
 ## Item quality rules
 
-A memory item that lacks metadata is invisible to retrieval. Always populate:
+Memory item lacking metadata = invisible to retrieval. Always populate:
 
 | Field | Why it matters | Example |
 |---|---|---|
@@ -72,8 +72,8 @@ A memory item that lacks metadata is invisible to retrieval. Always populate:
 | `tags[]` | Tag-based recall filtering | `["aws", "auth", "gotcha"]` |
 | `related_keys[]` | Links items into a graph; prevents discovery islands | keys of adjacent concepts |
 
-Items without all three fields are reachable only by full-text search — slow,
-imprecise, and skipped by most retrieval paths.
+Items missing all three fields = reachable only by full-text search — slow,
+imprecise, skipped by most retrieval paths.
 
 ---
 
@@ -85,9 +85,9 @@ imprecise, and skipped by most retrieval paths.
 | **Concept** | Synthesized pattern across multiple sessions | Deliberate, reviewable — not automatic |
 | **Project summary** | Breadth-first state of the project | After major milestones, not routine commits |
 
-**Concept synthesis is an explicit act, not auto-generated.** The system may
-propose consolidations, but the agent creates concepts deliberately after
-reviewing what would be synthesized. Automatic concept creation creates
+**Concept synthesis = explicit act, not auto-generated.** System may
+propose consolidations, but agent creates concepts deliberately after
+reviewing what would be synthesized. Automatic concept creation makes
 authoritative-looking but shallow entries.
 
 ---
@@ -109,23 +109,23 @@ authoritative-looking but shallow entries.
 
 ## Signs of unhealthy memory
 
-- Retrieval returns many items that aren't relevant to the query
-- Sessions load the same stale context repeatedly
-- Concepts exist that contradict each other (one supersedes the other but wasn't marked)
+- Retrieval returns many items irrelevant to query
+- Sessions load same stale context repeatedly
+- Concepts contradict each other (one supersedes other but wasn't marked)
 - Items exist without repos/tags/related\_keys — invisible to primary retrieval
 
 **Fix:** periodic review pass. Archive superseded items. Add missing metadata.
-Merge near-duplicate units into a concept. A smaller, well-linked graph
-outperforms a large, sparse one.
+Merge near-duplicate units into a concept. Smaller, well-linked graph
+beats large, sparse one.
 
 ---
 
 ## Signs of under-committed memory
 
-- Team re-discovers the same gotcha across sessions
+- Team re-discovers same gotcha across sessions
 - Architectural rationale exists only in chat history (lost on context reset)
-- New contributors ask questions the memory should be able to answer
+- New contributors ask questions memory should answer
 
-**Fix:** lower the bar for unit-level commits. Short, specific, tagged. A
-three-sentence learning with proper repos/tags/related\_keys is more valuable
-than a long, untagged narrative.
+**Fix:** lower bar for unit-level commits. Short, specific, tagged. A
+three-sentence learning with proper repos/tags/related\_keys beats
+a long, untagged narrative.

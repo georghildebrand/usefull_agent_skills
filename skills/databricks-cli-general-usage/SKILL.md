@@ -7,29 +7,29 @@ description: Use when interacting with Databricks from the command line, especia
 
 ## Overview
 
-Databricks CLI covers the common terminal workflows: jobs, clusters, SQL, assets, and auth. The two IDs that matter most are:
+Databricks CLI covers terminal workflows: jobs, clusters, SQL, assets, auth. Two IDs matter most:
 
 - `run_id`: one execution
-- `job_id`: the reusable template behind many runs
+- `job_id`: reusable template behind many runs
 
-If you use the wrong one, you will usually get the wrong result or the wrong error.
+Wrong one → wrong result or wrong error.
 
 ## When To Use
 
-- Job failed and you need logs from the terminal.
-- You want to create or trigger a job from a script or CI pipeline.
-- You need a quick SQL query without opening the UI.
-- You want cluster or workspace metadata from the CLI.
+- Job failed, need logs from terminal.
+- Create/trigger job from script or CI pipeline.
+- Quick SQL query without UI.
+- Cluster/workspace metadata from CLI.
 
-Prefer the UI for visually complex job design or permission management.
+Prefer UI for visually complex job design or permission management.
 
 ## Core Concepts
 
 ### Run Vs Job ID
 
-- `run_id` identifies a single execution.
-- `job_id` identifies the reusable job definition.
-- To move from run to job, inspect `jobs get-run` output and read `.job_id`.
+- `run_id`: single execution.
+- `job_id`: reusable job definition.
+- Run → job: inspect `jobs get-run` output, read `.job_id`.
 
 ### Authentication
 
@@ -45,7 +45,7 @@ export DATABRICKS_TOKEN=dapi...
 databricks auth test
 ```
 
-If auth fails, check token expiry, workspace URL, and whether the active profile is the one you intended. In multi-workspace setups, keep an explicit profile and use it consistently.
+Auth fails → check token expiry, workspace URL, active profile correct. Multi-workspace: keep explicit profile, use consistently.
 
 ## Quick Reference Table
 
@@ -59,7 +59,7 @@ If auth fails, check token expiry, workspace URL, and whether the active profile
 | Trigger run | `databricks jobs run-now --job-id <JOB_ID>` | Start job immediately |
 | List clusters | `databricks clusters list --output json` | All clusters in workspace |
 | Get cluster status | `databricks clusters get --cluster-id <CLUSTER_ID>` | Running, pending, terminated |
-| Execute SQL | `databricks sql execute --statement "SELECT ..."` | Direct query execution |
+| Execute SQL | `databricks sql execute --statement "SELECT ..."` | v1.x only — absent in v1.2.x and older |
 | List workspace assets | `databricks workspace list --path /` | Browse notebooks and files |
 | Export notebook | `databricks workspace export --path /Users/me/notebook --format SOURCE --file-path ./notebook.py` | Handy for backup or review |
 
@@ -73,7 +73,7 @@ databricks jobs get-run-output --run-id <RUN_ID> --output json | jq '.logs'
 databricks jobs list-runs --job-id <JOB_ID> --limit 5 --output json | jq '.runs[] | {run_id, state, start_time, state_message}'
 ```
 
-Check `state_message` first. It often already names the timeout, permission, or cluster problem.
+Check `state_message` first. Often names timeout, permission, or cluster problem.
 
 ### 2. Create and Trigger Job from CLI
 
@@ -109,15 +109,35 @@ databricks jobs get-run --run-id <RUN_ID> --output json | jq '.state'
 
 ### 3. Execute A SQL Query
 
+`databricks sql execute` exists only in newer SDK-based CLI versions. Absent in v1.2.x and older. Use REST passthrough — works on any version:
+
 ```bash
-# Single statement
+# Via REST API (works on all CLI versions)
+databricks api post /api/2.0/sql/statements \
+  --profile <PROFILE> \
+  --output json \
+  --json '{
+    "warehouse_id": "<WAREHOUSE_ID>",
+    "statement": "SELECT COUNT(*) FROM my_table",
+    "wait_timeout": "30s"
+  }'
+```
+
+Results land in `.result.data_array` as JSON array of rows. Parse with:
+
+```bash
+databricks api post /api/2.0/sql/statements \
+  --profile <PROFILE> \
+  --output json \
+  --json '{"warehouse_id":"<WAREHOUSE_ID>","statement":"SELECT * FROM my_table LIMIT 10","wait_timeout":"30s"}' \
+  | python3 -c "import sys,json; [print(r) for r in json.load(sys.stdin)['result']['data_array']]"
+```
+
+If `databricks sql execute` IS available (newer CLI):
+
+```bash
 databricks sql execute --statement "SELECT COUNT(*) FROM my_table"
-
-# From file
 databricks sql execute --statement-path query.sql
-
-# With output formatting
-databricks sql execute --statement "SELECT * FROM my_table LIMIT 10" --output json | jq '.[] | {col1, col2}'
 ```
 
 ### 4. Cluster Operations
@@ -185,15 +205,20 @@ databricks jobs get-run --run-id $LATEST_RUN --output json | jq '.state_message'
 
 | CLI Version | Command Style | Notes |
 |-------------|---|---|
-| Old releases | `databricks jobs get-run <RUN_ID>` (positional) | Avoid if possible |
-| Modern releases | `databricks jobs get-run --run-id <RUN_ID>` | Preferred form |
+| v0.x old releases | `databricks jobs get-run <RUN_ID>` (positional) | Avoid if possible |
+| v1.x modern releases | `databricks jobs get-run --run-id <RUN_ID>` | Preferred form |
+| v1.2.x and older | `databricks jobs delete <JOB_ID>` (positional) | `--job-id` flag does NOT exist |
+| v1.x newer SDK | `databricks jobs delete --job-id <JOB_ID>` | Flag-based form |
+| v1.2.x and older | `databricks sql execute` absent | Use `databricks api post /api/2.0/sql/statements` |
+
+Same binary name, very different interfaces across installs. Flag rejected with `unknown flag` → check `databricks <subcommand> --help`; positional args won't appear as flags.
 
 **Check version:**
 ```bash
 databricks --version
 ```
 
-If syntax and output disagree with this file, check the installed CLI version before assuming the command is wrong.
+Two CLI versions in PATH (e.g. Homebrew install + VS Code extension) conflict silently. `which -a databricks` reveals both.
 
 ## Common Mistakes
 
@@ -203,15 +228,15 @@ If syntax and output disagree with this file, check the installed CLI version be
 | Checking logs before `state_message` | Read `state_message` first |
 | Forgetting `--output json` when parsing | Add `--output json` before piping to `jq` |
 | Using the wrong cluster or job identifier | Stop and confirm whether you need a run, job, or cluster ID |
-| Tight polling loops | Sleep between checks to avoid noisy API usage |
+| Tight polling loops | Sleep between checks to avoid noisy API use |
 | Hyphenated Unity Catalog table names | Use identifier-safe names; replace hyphens with underscores |
 | Inconsistent artifact filenames | Include a version in the filename; Databricks caches by filename |
 
 ## Deployment Notes
 
-- Keep `jobs get-run` and `jobs get-run-output` separate in your head: one is status, the other is output.
-- If you create bundles or deploy scripts, preserve the same filename/version pair across runs so the CLI does not reuse stale artifacts.
-- For generated table names, normalize to lowercase underscore identifiers before sending them to Databricks.
+- Keep `jobs get-run` (status) and `jobs get-run-output` (output) separate in your head.
+- Bundles/deploy scripts: preserve same filename/version pair across runs so CLI does not reuse stale artifacts.
+- Generated table names: normalize to lowercase underscore identifiers before sending to Databricks.
 
 ## Red Flags
 
@@ -221,4 +246,4 @@ If syntax and output disagree with this file, check the installed CLI version be
 - `databricks jobs list-runs --run-id <RUN_ID>` (that flag expects a job ID)
 - `databricks sql execute --path query.sql` (use `--statement-path`)
 
-If you write these, stop and check syntax via `databricks <command> --help`.
+Wrote these → stop, check syntax via `databricks <command> --help`.

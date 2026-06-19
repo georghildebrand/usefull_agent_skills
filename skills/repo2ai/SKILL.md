@@ -8,16 +8,15 @@ description: >
 
 # repo2ai — Load Repository as Context
 
-`repo2ai` exports a git repository's contents to structured Markdown so the
-result can be used as a single context block. Use it to load an unfamiliar
-codebase without reading files one by one.
+`repo2ai` exports git repo contents to structured Markdown, usable as single
+context block. Loads unfamiliar codebase without reading files one by one.
 
 ## When to Use
 
-- User asks to review or audit a full repo
-- Cross-repo analysis where multiple codebases need to be compared
-- Onboarding to an unfamiliar project quickly
-- Feeding a repo to an independent reviewer or another session
+- Review or audit full repo
+- Cross-repo analysis: compare multiple codebases
+- Quick onboarding to unfamiliar project
+- Feed repo to independent reviewer or another session
 
 ## Basic Usage
 
@@ -35,9 +34,9 @@ repo2ai /path/to/repo --output /tmp/repo-dump.md
 
 ## Workflow
 
-1. Preview with `repo2ai <path> --stdout | head -200`
-2. Save a full dump with `--output` when you need reuse
-3. Read the output and verify the snapshot is current against git history
+1. Preview: `repo2ai <path> --stdout | head -200`
+2. Save full dump with `--output` for reuse
+3. Read output, verify snapshot current against git history
 
 ## Flags
 
@@ -53,6 +52,6 @@ repo2ai /path/to/repo --output /tmp/repo-dump.md
 
 ## Notes
 
-- Output can be large for big repos, so trim with `--max-file-size` and `--exclude-meta-files` when needed
-- This is a snapshot, not live state; check currency against `git log` before acting on findings
-- Binary files are skipped automatically
+- Output large for big repos; trim with `--max-file-size` and `--exclude-meta-files`
+- Snapshot, not live state; check currency against `git log` before acting on findings
+- Binary files skipped automatically

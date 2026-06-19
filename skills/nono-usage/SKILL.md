@@ -7,9 +7,9 @@ description: Use when setting up nono to run Claude Code securely, creating or m
 
 ## Overview
 
-nono is a capability-based sandbox (Landlock on Linux, Seatbelt on macOS). A built-in `claude-code` profile exists — install the pack, build a shell wrapper with your project paths, and invoke it instead of `claude` directly.
+nono = capability-based sandbox (Landlock on Linux, Seatbelt on macOS). Built-in `claude-code` profile exists. Install pack, build shell wrapper with project paths, invoke instead of `claude` directly.
 
-> Runtime failures *inside* a running session → use `nono:nono-sandbox` skill instead.
+> Runtime failures *inside* running session → use `nono:nono-sandbox` skill instead.
 
 ## Quick Start
 
@@ -24,7 +24,7 @@ nono profile show claude-code
 
 ## Recommended Shell Wrapper
 
-Rather than typing all flags every time, define a shell function in `~/.zshrc` or `~/.bashrc`:
+Avoid typing all flags every time. Define shell function in `~/.zshrc` or `~/.bashrc`:
 
 ```bash
 claudenono() {
@@ -47,18 +47,18 @@ Key flags explained:
 | Flag | Why needed |
 |---|---|
 | `--profile claude-code` | Base profile from the pack |
-| `--allow-cwd` | Grants read-write to current directory at invocation time |
+| `--allow-cwd` | Read-write to current dir at invocation time |
 | `--allow-file /dev/tty` | Terminal I/O (interactive prompts) |
 | `--allow-file /dev/null` | Needed by many subprocesses |
 | `--read-file /dev/urandom` | Randomness (TLS, UUID generation) |
 | `--allow ~/.local/bin/` | uv-installed tools / pipx binaries |
-| `--allow ~/.local/share/uv/` + `~/.cache/uv/` | Python environment managed by uv |
+| `--allow ~/.local/share/uv/` + `~/.cache/uv/` | uv-managed Python environment |
 
-Add any project directories your agent needs to read/write.
+Add project dirs agent needs to read/write.
 
 ## Ad-Hoc Per-Session Paths
 
-For one-off sessions without modifying the wrapper:
+One-off sessions without modifying wrapper:
 
 ```bash
 # Add a directory just for this run
@@ -73,7 +73,7 @@ nono run --profile claude-code --allow-cwd --allow-file ~/.netrc -- claude
 
 ## Custom Profiles
 
-When you need the same extra permissions across all sessions:
+When you need same extra permissions across all sessions:
 
 ```bash
 # Generate skeleton extending claude-code
@@ -111,4 +111,4 @@ cat "$NONO_CAP_FILE" | jq .    # Lists fs capabilities + net_blocked
 
 ## Known Gotcha
 
-`~/.ssh/known_hosts` blocked by `deny_credentials` policy → `git push` and SSH fail inside nono. Run git operations in a normal terminal outside the sandbox.
+`~/.ssh/known_hosts` blocked by `deny_credentials` policy → `git push` and SSH fail inside nono. Run git ops in normal terminal outside sandbox.

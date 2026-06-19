@@ -10,8 +10,8 @@ description: >
 
 ## The trap in one sentence
 
-`AWS_PROFILE` is silently ignored when `AWS_ACCESS_KEY_ID` is set in the
-environment — the SDK never warns you, and you work against the wrong account.
+`AWS_PROFILE` silently ignored when `AWS_ACCESS_KEY_ID` set in env — SDK never
+warns, you work against wrong account.
 
 ---
 
@@ -24,8 +24,8 @@ environment — the SDK never warns you, and you work against the wrong account.
 4. **Container credential provider** — ECS task role, CodeBuild env
 5. **EC2 instance metadata** — IMDSv2
 
-The SDK stops at the first match. If env vars are set from a previous shell
-session, profile-based development is invisible.
+SDK stops at first match. Env vars from previous shell session → profile-based
+development invisible.
 
 ---
 
@@ -55,13 +55,13 @@ export AWS_PROFILE=my-profile   # or: aws --profile my-profile <cmd>
 aws sts get-caller-identity
 ```
 
-If you skip the `unset` step and stale env vars are present, `AWS_PROFILE` is
-overridden silently. The caller identity will show the wrong account.
+Skip `unset` with stale env vars present → `AWS_PROFILE` overridden silently.
+Caller identity shows wrong account.
 
 ### Scenario C — session token exported directly
 
-When a user exports short-lived credentials directly into the shell (common
-with SSO, `aws-vault`, or token-vending scripts):
+User exports short-lived credentials directly into shell (common with SSO,
+`aws-vault`, token-vending scripts):
 
 ```bash
 export AWS_ACCESS_KEY_ID=<temp-key-id>
@@ -69,8 +69,8 @@ export AWS_SECRET_ACCESS_KEY=<temp-secret>
 export AWS_SESSION_TOKEN=<temp-token>
 ```
 
-**Do not** set `AWS_PROFILE` or unset these variables — the env credentials are
-intentional. Validate only:
+**Do not** set `AWS_PROFILE` or unset these vars — env credentials intentional.
+Validate only:
 
 ```bash
 aws sts get-caller-identity
@@ -81,7 +81,7 @@ aws sts get-caller-identity
 
 ## Diagnostic runbook
 
-Run this before any multi-account work or when auth behaves unexpectedly:
+Run before any multi-account work or when auth behaves unexpectedly:
 
 ```bash
 # 1. Check what env vars are set
@@ -101,15 +101,15 @@ aws sts get-caller-identity
 | Mistake | What happens | Fix |
 |---|---|---|
 | `AWS_PROFILE` set but `AWS_ACCESS_KEY_ID` also set | Profile silently ignored | `unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN` |
-| Temp credentials without `AWS_SESSION_TOKEN` | SDK request signed with incomplete credentials; auth errors | Export all three vars together |
+| Temp credentials without `AWS_SESSION_TOKEN` | Request signed with incomplete credentials; auth errors | Export all three vars together |
 | Wrong region on multi-region setups | SDK uses wrong endpoint | See region section below |
-| Assuming profile switch takes effect immediately in boto3 | boto3 sessions resolve credentials at construction time | Create a new `boto3.Session()` after changing env vars |
+| Assuming profile switch takes effect immediately in boto3 | boto3 sessions resolve credentials at construction time | New `boto3.Session()` after changing env vars |
 
 ---
 
 ## Region resolution (separate from credentials)
 
-Region is resolved independently, also in priority order:
+Region resolved independently, also in priority order:
 
 1. Explicit `region_name` in constructor / `--region` flag
 2. `AWS_DEFAULT_REGION` env var ← used by AWS CLI v1 and boto3
@@ -117,7 +117,7 @@ Region is resolved independently, also in priority order:
 4. Profile config `region =` in `~/.aws/config`
 
 **SDK version split:** boto3 / AWS CLI v1 reads `AWS_DEFAULT_REGION`.
-AWS CLI v2 reads `AWS_REGION` first. Set both if you mix v1 and v2 toolchains:
+AWS CLI v2 reads `AWS_REGION` first. Set both if mixing v1 and v2 toolchains:
 
 ```bash
 export AWS_DEFAULT_REGION=eu-west-1
@@ -128,9 +128,9 @@ export AWS_REGION=eu-west-1
 
 ## boto3 session timing gotcha
 
-boto3 resolves credentials when the session (or client/resource) is created —
-not when the API call is made. Changing env vars after session construction has
-no effect on that session:
+boto3 resolves credentials when session (or client/resource) created — not when
+API call made. Changing env vars after session construction has no effect on
+that session:
 
 ```python
 import boto3, os

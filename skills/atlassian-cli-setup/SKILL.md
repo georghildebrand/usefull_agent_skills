@@ -9,8 +9,8 @@ description: >
 
 # atlassian-cli — Jira, Confluence, Bitbucket
 
-`atlassian-cli` is a Rust-based CLI for Jira, Confluence, and Bitbucket.
-Install via `brew install atlassian-cli`.
+`atlassian-cli`: Rust CLI for Jira, Confluence, Bitbucket.
+Install: `brew install atlassian-cli`.
 
 ## Profile Overview
 
@@ -19,7 +19,7 @@ Install via `brew install atlassian-cli`.
 | `<jira-profile>` (often default) | `https://<org>.atlassian.net/` | Jira + Confluence |
 | `<bitbucket-profile>` | `https://<org2>.atlassian.net/` or a separate Bitbucket org | Bitbucket |
 
-Always put `--profile <name>` **before** the subcommand:
+Put `--profile <name>` **before** subcommand:
 ```bash
 atlassian-cli --profile <name> jira issue get PROJ-123
 ```
@@ -32,18 +32,18 @@ atlassian-cli --profile <name> jira issue get PROJ-123
 
 ## Setup Flow
 
-1. Create or confirm the profile you want for Jira/Confluence.
-2. Create a separate profile for Bitbucket if it lives in a different org.
-3. Keep the profiles explicit. Do not rely on silent default fallbacks.
+1. Create/confirm profile for Jira/Confluence.
+2. Create separate profile for Bitbucket if different org.
+3. Keep profiles explicit. No silent default fallbacks.
 
-For Bitbucket login, use the Bitbucket-specific flag and verify with `bitbucket whoami`:
+Bitbucket login: use Bitbucket-specific flag, verify with `bitbucket whoami`:
 
 ```bash
 atlassian-cli --profile <bitbucket-profile> auth login --bitbucket --bearer --token <TOKEN>
 atlassian-cli --profile <bitbucket-profile> bitbucket whoami
 ```
 
-If a Bitbucket login seems to have affected Jira access, re-run the Jira login for the Jira profile.
+If Bitbucket login affected Jira access, re-run Jira login for Jira profile.
 
 ## Jira Basics
 
@@ -87,7 +87,7 @@ atlassian-cli --profile <p> jira issue assign PROJ-123 --assignee user@email.com
 ### Jira Hierarchy Rules
 - Epic → Story: `--field 'parent={"key":"EPIC-KEY"}'`
 - Story → Sub-task: `--field 'parent={"key":"STORY-KEY"}'` + `--issue-type "Sub-task"`
-- `customfield_10014` (Epic Link) is screen-gated in many instances — do not use it
+- `customfield_10014` (Epic Link) screen-gated in many instances — do not use
 
 ---
 
@@ -110,7 +110,7 @@ atlassian-cli --profile <p> confluence page update <PAGE_ID> \
   --body page.html
 ```
 
-> `--body` takes a **file path**, not an inline string.  
+> `--body` takes **file path**, not inline string.  
 > Content must be [Confluence Storage Format](https://confluence.atlassian.com/doc/confluence-storage-format-790796544.html) (XHTML with `<ac:structured-macro>` etc.)
 
 ---
@@ -145,8 +145,8 @@ atlassian-cli --profile <bb-p> bitbucket pr merge <PR_ID> --workspace <WORKSPACE
 
 ## Bitbucket Auth Setup
 
-1. Create a Bitbucket token from the Atlassian account security page.
-   - Use the Bitbucket-scoped token option if the account offers one.
+1. Create Bitbucket token from Atlassian account security page.
+   - Use Bitbucket-scoped token option if offered.
    - Include read and pull request write scopes.
 
 2. Login:
@@ -166,7 +166,7 @@ atlassian-cli auth login --profile <primary-profile> \
   --token <ATLASSIAN_API_TOKEN> \
   --base-url https://<org>.atlassian.net/
 ```
-Use the Jira/Confluence token flow for the Jira profile, and keep it separate from the Bitbucket login.
+Use Jira/Confluence token flow for Jira profile; keep separate from Bitbucket login.
 
 ---
 
@@ -174,9 +174,9 @@ Use the Jira/Confluence token flow for the Jira profile, and keep it separate fr
 
 | Bug | Symptom | Workaround |
 |-----|---------|------------|
-| `auth list` looks fine but commands still fail | Profile selection or token scope is wrong | Use the target service command itself, like `bitbucket whoami` |
-| `auth login --bitbucket` appears to affect the wrong profile | Default profile or stale config is being used | Re-run login with an explicit `--profile` and verify immediately |
-| `jira issue delete` reports a parse error after success | Jira returns `204 No Content` | Verify with `issue get` instead of trusting exit text |
+| `auth list` looks fine but commands still fail | Wrong profile selection or token scope | Use target service command, e.g. `bitbucket whoami` |
+| `auth login --bitbucket` affects wrong profile | Default profile or stale config used | Re-run login with explicit `--profile`, verify immediately |
+| `jira issue delete` reports parse error after success | Jira returns `204 No Content` | Verify with `issue get`, don't trust exit text |
 
 ---
 
@@ -186,6 +186,6 @@ Use the Jira/Confluence token flow for the Jira profile, and keep it separate fr
 |-------|-------|-----|
 | `Authentication failed` | Wrong token or email for Bitbucket account | Re-login with correct Bitbucket account email |
 | `Resource not found` (404 on known repo) | Token missing `Repositories: Read` | Recreate token with correct scopes |
-| `No Bitbucket token found` | Login ran without the Bitbucket flag | Re-run with `--bitbucket` |
-| `credentials lack required privilege scopes` | Missing pull request write scope | Recreate the Bitbucket token with write scope |
-| Jira behaves oddly after Bitbucket login | The active profile is not the Jira profile | Re-run Jira login for the Jira profile |
+| `No Bitbucket token found` | Login ran without Bitbucket flag | Re-run with `--bitbucket` |
+| `credentials lack required privilege scopes` | Missing pull request write scope | Recreate Bitbucket token with write scope |
+| Jira behaves oddly after Bitbucket login | Active profile not Jira profile | Re-run Jira login for Jira profile |

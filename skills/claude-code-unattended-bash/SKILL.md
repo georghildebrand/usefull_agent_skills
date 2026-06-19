@@ -10,9 +10,8 @@ description: >
 # Claude Code — Safe Bash for Unattended Sessions
 
 Unattended Claude Code sessions (background agents, `/loop`, overnight runs)
-block indefinitely when a tool call triggers a security approval prompt.
-There is no timeout — the session just hangs. Three patterns reliably cause
-this.
+block indefinitely when tool call triggers security approval prompt.
+No timeout — session hangs. Three patterns reliably cause this.
 
 ---
 
@@ -26,8 +25,8 @@ cd /path/to/repo && git log --oneline -10
 cd /path/to/repo && git commit -m "..."
 ```
 
-The `cd` + `git` compound is flagged as a potential working-directory
-manipulation attack. The approval prompt appears, the session waits.
+`cd` + `git` compound flagged as potential working-directory
+manipulation attack. Approval prompt appears, session waits.
 
 ### The fix
 
@@ -38,8 +37,8 @@ git -C /absolute/path/to/repo commit -m "..."
 git -C /absolute/path/to/repo status
 ```
 
-`git -C <path>` is accepted by every git subcommand. Use absolute paths.
-This is the only safe way to run git in unattended sessions.
+`git -C <path>` accepted by every git subcommand. Use absolute paths.
+Only safe way to run git in unattended sessions.
 
 ---
 
@@ -55,8 +54,8 @@ RESULT=$(some-cli get-value) && do-something-with "$RESULT"
 echo "Value: $(aws sts get-caller-identity | jq -r .Account)"
 ```
 
-Variable capture via `$(...)` inside a compound Bash string is flagged as
-potentially unsafe command expansion.
+Variable capture via `$(...)` inside compound Bash string flagged as
+unsafe command expansion.
 
 ### The fixes
 
@@ -80,7 +79,7 @@ result = subprocess.run(
 subprocess.run(["do-something-with", result], check=True)
 ```
 
-Write to `/tmp/task-name.py` and run it. No shell expansion, no prompt.
+Write to `/tmp/task-name.py`, run it. No shell expansion, no prompt.
 
 ---
 
@@ -93,13 +92,13 @@ Write to `/tmp/task-name.py` and run it. No shell expansion, no prompt.
 aws ec2 describe-instances --filters "Name=tag:Env,Values=prod" # get prod instances
 ```
 
-The `#` starts a shell comment. The comment text is silently dropped;
-in some contexts the entire command is affected.
+`#` starts shell comment. Comment text silently dropped;
+in some contexts entire command affected.
 
 ### The fix
 
-Never put `#` in shell strings passed to the Bash tool. Write the explanation
-in the tool call description field instead:
+Never put `#` in shell strings passed to Bash tool. Write explanation
+in tool call description field instead:
 
 ```bash
 aws ec2 describe-instances --filters "Name=tag:Env,Values=prod"
@@ -122,7 +121,7 @@ aws ec2 describe-instances --filters "Name=tag:Env,Values=prod"
 ## `/loop` polling pattern
 
 `/loop` means: run **once**, then poll for completion. Never chain repeated
-invocations inside the loop body.
+invocations inside loop body.
 
 ```
 # WRONG — triggers N runs
@@ -133,15 +132,15 @@ Run the pipeline: <command>
 /loop: check if pipeline <id> has completed, stop loop when done
 ```
 
-Use `Monitor` tool to stream stdout from a background process instead of
-polling with `sleep` loops — each line triggers a notification without
+Use `Monitor` tool to stream stdout from background process instead of
+polling with `sleep` loops — each line triggers notification without
 blocking.
 
 ---
 
 ## Unattended session checklist
 
-Before handing a multi-step task to an unattended agent:
+Before handing multi-step task to unattended agent:
 
 - [ ] All `git` commands use `git -C /absolute/path`
 - [ ] No `$(cmd)` captures inside compound Bash strings

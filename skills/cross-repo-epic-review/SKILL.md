@@ -9,18 +9,18 @@ description: >
 
 # Cross-Repo Epic Review — Four-Round Structure
 
-A single review pass on a multi-repo epic misses too much. Agent reviews miss
+Single review pass on multi-repo epic misses too much. Agent reviews miss
 cross-repo consistency. Flat-source reviews miss branch state. Neither catches
-strategic framing issues. This four-round structure closes those gaps.
+strategic framing. This four-round structure closes gaps.
 
 ---
 
 ## When to use
 
 - Epic spans 2+ repos with shared contracts, interfaces, or schemas
-- You need confidence before a major integration milestone or go-live
-- A previous review surfaced inconsistencies but couldn't pinpoint root cause
-- Stakeholders disagree on whether the epic should stay unified or split
+- Need confidence before major integration milestone or go-live
+- Previous review surfaced inconsistencies but couldn't pinpoint root cause
+- Stakeholders disagree whether epic stays unified or splits
 
 ---
 
@@ -35,11 +35,11 @@ strategic framing issues. This four-round structure closes those gaps.
 **How to run:**
 
 Spawn one agent per repo in parallel. Give each agent:
-- The repo path
-- The epic ticket ID and a one-paragraph description of what it's supposed to do
-- A checklist of questions specific to that repo
+- Repo path
+- Epic ticket ID + one-paragraph description of what it's supposed to do
+- Checklist of questions specific to that repo
 
-Each agent is blind to what the others find — that's intentional. Diversity
+Each agent blind to what others find — intentional. Diversity
 surfaces more than coordination.
 
 ```
@@ -70,10 +70,10 @@ repo2ai /path/to/repo-b --output /tmp/repo-b.md
 cat /tmp/repo-a.md /tmp/repo-b.md > /tmp/combined.md
 ```
 
-Feed the combined dump to a fresh reviewer with cross-repo questions.
-The reviewer sees everything as one flat document — no repo boundary blindness.
+Feed combined dump to fresh reviewer with cross-repo questions.
+Reviewer sees everything as one flat document — no repo boundary blindness.
 
-Run **in parallel with Round 1a** — same wall-clock cost as a single pass.
+Run **in parallel with Round 1a** — same wall-clock cost as single pass.
 
 ---
 
@@ -83,7 +83,7 @@ Before moving to Round 2:
 
 1. Merge findings from both passes
 2. Flag contradictions between rounds
-3. **Cross-check ~25% of contradictions against current file state** — a
+3. **Cross-check ~25% of contradictions against current file state** —
    significant fraction are stale findings from old snapshots. Verify before
    acting.
 
@@ -93,7 +93,7 @@ Before moving to Round 2:
 
 **Best for:** Issues agents reliably miss.
 
-Agents default to technical findings. A separate pass on the epic *document*
+Agents default to technical findings. Separate pass on epic *document*
 (spec, RFC, ADR) catches:
 
 | Issue type | What it looks like |
@@ -107,7 +107,7 @@ Agents default to technical findings. A separate pass on the epic *document*
 
 **How to run:**
 
-Give a reviewer the epic document plus this checklist. This is a distinct
+Give reviewer epic document plus this checklist. Distinct
 cognitive mode from technical review — prime explicitly:
 
 ```
@@ -123,24 +123,24 @@ and any language likely to cause pushback from <stakeholder type>.
 **Best for:** Epics with maturity ladders (PoC → Pattern → Platform,
 or M0 → M1 → M2) where scope creep risk is high.
 
-Ask: should this be **phases inside one epic** or **three separate epics with
+Ask: **phases inside one epic** or **three separate epics with
 explicit triggers**?
 
 **Signs it should split:**
-- Phase 1 ("PoC") would be shippable and valuable on its own
-- Phase 2 trigger is unclear — "when Phase 1 is done" is not a trigger
-- The team treats Phase 1 as a throwaway ("Wegwerf-PoC") but Phase 2 secretly
+- Phase 1 ("PoC") shippable and valuable on its own
+- Phase 2 trigger unclear — "when Phase 1 is done" is not a trigger
+- Team treats Phase 1 as throwaway ("Wegwerf-PoC") but Phase 2 secretly
   assumes its output is production-grade
-- Stakeholders have different mental models of where the epic ends
+- Stakeholders have different mental models of where epic ends
 
 **Signs it should stay unified:**
-- Phases are tightly coupled — Phase 2 requires rework of Phase 1 internals
-- The deliverable is only valuable when all phases complete
-- All phases have a single owner team
+- Phases tightly coupled — Phase 2 requires rework of Phase 1 internals
+- Deliverable only valuable when all phases complete
+- All phases have single owner team
 
-If it splits: define the trigger conditions (business event, metric threshold,
-explicit decision gate) before writing the child epics. Splits without triggers
-just defer the scope conversation.
+If it splits: define trigger conditions (business event, metric threshold,
+explicit decision gate) before writing child epics. Splits without triggers
+defer the scope conversation.
 
 ---
 
@@ -154,7 +154,7 @@ just defer the scope conversation.
 | 3 | Single agent or human | ~5 min | Scope creep, split decision |
 | **Total** | | **~20 min wall clock** | |
 
-Rounds 1a and 1b run in parallel — total wall-clock is max(1a, 1b), not sum.
+Rounds 1a and 1b run in parallel — total wall-clock = max(1a, 1b), not sum.
 
 ---
 
