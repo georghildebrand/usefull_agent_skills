@@ -67,11 +67,29 @@ anywhere on your machine, or run in place.
 ```bash
 source <path-to-your-atlassian-env-file>
 python3 tempo_log.py \
-  --issue <PROJECT>-<NUM> --date <YYYY-MM-DD> --hours <N> --desc "<summary>" \
+  --issue <PROJECT>-<NUM> --date <YYYY-MM-DD> --start <HH:MM> --end <HH:MM> \
+  --desc "<summary>" --account <ACCOUNT_KEY> \
   [--dry-run]
 ```
 
-`--dry-run` prints payload without sending.
+`--dry-run` prints payload without sending. `--account` is optional — omit if
+your Tempo instance doesn't use the Account work-attribute.
+
+### Setting the "Account" field
+
+If your org's Tempo UI shows an **Account** dropdown on time records, that's a
+Tempo work-attribute (key `_Account_`), not a native worklog field. Look up
+valid account keys via:
+
+```bash
+curl -s -H "Authorization: Bearer $TEMPO_API_KEY" "https://api.tempo.io/4/accounts" \
+  | python3 -c "import json,sys; [print(a['key'],'|',a['name']) for a in json.load(sys.stdin)['results']]"
+```
+
+**Gotcha:** the create-worklog POST wants `attributes` as a **bare array**:
+`[{"key": "_Account_", "value": "<ACCOUNT_KEY>"}]`. Wrapping it as
+`{"values": [...]}` (the shape Tempo returns on GET) fails with a Jackson
+deserialization error (`Cannot deserialize value of type HashSet<...>`).
 
 ## Common Mistakes
 
@@ -79,3 +97,4 @@ python3 tempo_log.py \
 - Passing issue **key** instead of numeric **id** to Tempo POST — rejected
 - Querying `/4/worklogs` without `/user/{accountId}` — returns org-wide data, not yours
 - Mixing auth schemes — Jira=Basic, Tempo=Bearer, different tokens entirely
+- Wrapping `attributes` in `{"values": [...]}` on POST — bare array only

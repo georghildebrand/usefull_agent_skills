@@ -2,7 +2,8 @@
 """Log a Tempo worklog against a Jira ticket.
 
 Usage:
-  tempo_log.py --issue PROJ-123 --date 2026-07-09 --hours 3.5 --desc "Review PR" [--dry-run]
+  tempo_log.py --issue PROJ-123 --date 2026-07-09 --start 09:00 --end 12:00 \
+    --desc "Review PR" --account <ACCOUNT_KEY> [--dry-run]
 
 Reads config/secrets from env (source your Atlassian env file first):
   JIRA_EMAIL           (your Jira account email)
@@ -34,15 +35,19 @@ def resolve_issue_id(issue_key, jira_site, email, jira_token):
     return data["id"], data["fields"]["summary"]
 
 
-def create_worklog(issue_id, date, hours, desc, account_id, tempo_token, dry_run):
+def create_worklog(issue_id, date, start, hours, desc, account_id, account_key, tempo_token, dry_run):
     body = {
         "issueId": int(issue_id),
         "timeSpentSeconds": int(round(hours * 3600)),
         "startDate": date,
-        "startTime": "09:00:00",
+        "startTime": f"{start}:00",
         "description": desc or ".",
         "authorAccountId": account_id,
     }
+    if account_key:
+        # Tempo work-attribute for the "Account" field — API wants a bare array here,
+        # not {"values": [...]} (that shape is only used in GET responses).
+        body["attributes"] = [{"key": "_Account_", "value": account_key}]
     if dry_run:
         print("DRY RUN — would POST:", json.dumps(body, indent=2))
         return
@@ -66,10 +71,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--issue", required=True, help="Jira issue key, e.g. PROJ-123")
     ap.add_argument("--date", required=True, help="YYYY-MM-DD")
-    ap.add_argument("--hours", required=True, type=float)
+    ap.add_argument("--start", required=True, help="HH:MM")
+    ap.add_argument("--end", required=True, help="HH:MM")
     ap.add_argument("--desc", default="")
+    ap.add_argument("--account", default="", help="Tempo account key, e.g. FOC-RD (look up via GET /4/accounts)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+
+    sh, sm = map(int, args.start.split(":"))
+    eh, em = map(int, args.end.split(":"))
+    hours = (eh * 60 + em - sh * 60 - sm) / 60
 
     jira_email = os.environ.get("JIRA_EMAIL")
     jira_site = os.environ.get("JIRA_SITE_URL")
@@ -88,7 +99,7 @@ def main():
 
     issue_id, summary = resolve_issue_id(args.issue, jira_site, jira_email, jira_token)
     print(f"{args.issue} (id={issue_id}) — {summary}")
-    create_worklog(issue_id, args.date, args.hours, args.desc, account_id, tempo_token, args.dry_run)
+    create_worklog(issue_id, args.date, args.start, hours, args.desc, account_id, args.account, tempo_token, args.dry_run)
 
 
 if __name__ == "__main__":
