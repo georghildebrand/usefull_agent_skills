@@ -57,6 +57,7 @@ Auth fails → check token expiry, workspace URL, active profile correct. Multi-
 | List job runs | `databricks jobs list-runs --job-id <JOB_ID> --limit 10` | Recent executions |
 | Create job | `databricks jobs create --json-file job.json` | From JSON config |
 | Trigger run | `databricks jobs run-now --job-id <JOB_ID>` | Start job immediately |
+| Cancel run | `databricks jobs cancel-run <RUN_ID>` | Async — echoes run object, must re-poll to confirm |
 | List clusters | `databricks clusters list --output json` | All clusters in workspace |
 | Get cluster status | `databricks clusters get --cluster-id <CLUSTER_ID>` | Running, pending, terminated |
 | Execute SQL | `databricks sql execute --statement "SELECT ..."` | v1.x only — absent in v1.2.x and older |
@@ -201,6 +202,26 @@ done
 databricks jobs get-run --run-id $LATEST_RUN --output json | jq '.state_message'
 ```
 
+### 7. Cancel A Running Run
+
+`cancel-run` is **asynchronous**: it echoes the full run object (large — pipe or discard) and returns before teardown finishes. Always re-poll `get-run` to confirm the terminal state.
+
+```bash
+# Fire cancel (drop the echoed run object)
+databricks jobs cancel-run <RUN_ID> --output json > /dev/null
+
+# Confirm it actually cancelled
+databricks jobs get-run <RUN_ID> --output json | jq '{
+  life_cycle_state: .state.life_cycle_state,
+  result_state:     .state.result_state,
+  user_cancelled:   .state.user_cancelled_or_timedout,
+  state_message:    .state.state_message
+}'
+# Cancelled → life_cycle_state=TERMINATED, result_state=CANCELED, user_cancelled=true
+```
+
+Two state fields, distinct meaning: `life_cycle_state` = lifecycle phase (RUNNING→TERMINATED); `result_state` = outcome (CANCELED/FAILED/SUCCESS). A cancel is confirmed by both, plus `user_cancelled_or_timedout=true`.
+
 ## Version Compatibility
 
 | CLI Version | Command Style | Notes |
@@ -208,6 +229,7 @@ databricks jobs get-run --run-id $LATEST_RUN --output json | jq '.state_message'
 | v0.x old releases | `databricks jobs get-run <RUN_ID>` (positional) | Avoid if possible |
 | v1.x modern releases | `databricks jobs get-run --run-id <RUN_ID>` | Preferred form |
 | v1.2.x and older | `databricks jobs delete <JOB_ID>` (positional) | `--job-id` flag does NOT exist |
+| v1.2.x and older | `databricks jobs cancel-run <RUN_ID>` (positional) | `--run-id` flag does NOT exist |
 | v1.x newer SDK | `databricks jobs delete --job-id <JOB_ID>` | Flag-based form |
 | v1.2.x and older | `databricks sql execute` absent | Use `databricks api post /api/2.0/sql/statements` |
 

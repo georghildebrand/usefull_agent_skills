@@ -4,9 +4,11 @@ description: >
   Use when interacting with Jira, Confluence, or Bitbucket via atlassian-cli
   for issue updates, PR creation, richtext (ADF) descriptions, pipeline
   monitoring, or cross-profile / cross-org workflows. Covers the diagnostic
-  flow for picking the right profile, ADF gotchas, pipeline watch usage, and
-  harmless 204 parse-error false alarms on successful updates. For initial auth
-  and profile creation, see the companion skill `atlassian-cli-setup`.
+  flow for picking the right profile, ADF gotchas, pipeline watch usage,
+  harmless 204 parse-error false alarms on successful updates, and Confluence
+  page retrieval (short URL resolution, CQL search, storage-format extraction).
+  For initial auth and profile creation, see the companion skill
+  `atlassian-cli-setup`.
 ---
 
 # atlassian-cli — Runtime Usage Patterns
@@ -97,6 +99,90 @@ atlassian-cli --profile <bitbucket-profile> \
 Default-profile fallback silently selects wrong profile, reports
 `Authentication failed: Invalid or expired credentials` against Bitbucket. Fix:
 discover which profile holds the Bitbucket token, pass `--profile` explicitly.
+
+---
+
+## Confluence Page Retrieval
+
+### Short / tiny URLs cannot be passed to `page get`
+
+Confluence short links (`https://<instance>.atlassian.net/wiki/x/<HASH>`) are
+not numeric page IDs. `atlassian-cli confluence page get` requires a numeric ID.
+WebFetch also fails — Confluence requires authentication.
+
+**Do not try:**
+
+```bash
+atlassian-cli --profile <p> confluence page get "https://.../wiki/x/HASH"
+# error: invalid page ID
+```
+
+**Resolution workflow — find by title, then get by ID:**
+
+```bash
+# 1. Search by keyword from the page title
+atlassian-cli --profile <p> confluence search cql \
+  "title ~ \"<keyword>\""
+
+# Output includes numeric ID and title per result:
+# <PAGE_ID>  <Page Title>  <SPACE_KEY>
+
+# 2. Fetch full page content by numeric ID
+atlassian-cli --profile <p> confluence page get <PAGE_ID> --format json
+```
+
+`confluence search cql` accepts full CQL — combine operators when title alone
+is ambiguous:
+
+```bash
+atlassian-cli --profile <p> confluence search cql \
+  "title ~ \"job description\" AND space.key = \"<SPACE_KEY>\""
+```
+
+### Extract readable text from page body
+
+`page get --format json` returns body in `body.storage.value` — Confluence
+storage format (HTML/XML). Strip tags to read:
+
+```python
+import json, sys, re
+page = json.load(sys.stdin)
+html = page.get('body', {}).get('storage', {}).get('value', '')
+text = re.sub(r'<[^>]+>', ' ', html)
+text = re.sub(r'\s+', ' ', text).strip()
+print(page.get('title'))
+print(text[:5000])
+```
+
+Full pipeline:
+
+```bash
+atlassian-cli --profile <p> confluence page get <PAGE_ID> --format json \
+  | python3 -c "
+import json, sys, re
+page = json.load(sys.stdin)
+html = page.get('body', {}).get('storage', {}).get('value', '')
+text = re.sub(r'<[^>]+>', ' ', html)
+text = re.sub(r'\s+', ' ', text).strip()
+print('TITLE:', page.get('title'))
+print(text[:5000])
+"
+```
+
+### `confluence page list` is unreliable for some spaces
+
+`confluence page list --space <KEY>` returns `error decoding response body` on
+certain spaces — not the Jira 204 false alarm (that's a write-op quirk). Use
+`confluence search cql` with a `space.key` filter instead:
+
+```bash
+# Instead of:
+atlassian-cli --profile <p> confluence page list --space MYSPACE
+
+# Use:
+atlassian-cli --profile <p> confluence search cql \
+  "space.key = \"MYSPACE\" AND type = page" --limit 50
+```
 
 ---
 
