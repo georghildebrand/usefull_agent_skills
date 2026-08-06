@@ -10,6 +10,7 @@ Reusable Claude Code skills collection. Each skill lives in `skills/<name>/SKILL
 | [`atlassian-cli-usage`](skills/atlassian-cli-usage/SKILL.md) | Jira, Confluence, and Bitbucket runtime usage | You need to update issues, create PRs, or write ADF content |
 | [`databricks-cli`](skills/databricks-cli-general-usage/SKILL.md) | Databricks CLI operations and debugging | You need job runs, SQL, clusters, or workspace assets from the terminal |
 | [`repo2ai`](skills/repo2ai/SKILL.md) | Export a repository as structured Markdown context | You want to load a whole repo into context for review or analysis |
+| [`graphify-usage`](skills/graphify-usage/SKILL.md) | Build/refresh a local AST knowledge graph per repo; code-only vs semantic mode, claude-cli backend, cron/launchd refresh instead of git hooks | You want fast structural orientation in one large/unfamiliar repo (not for cross-repo data contracts) |
 | [`skill-confidentiality-boundary`](skills/skill-confidentiality-boundary/SKILL.md) | Keep skills generic and publish-safe | You are writing or reviewing a skill |
 | [`aws-credential-resolution-order`](skills/aws-credential-resolution-order/SKILL.md) | AWS credential chain, silent env-var override, region split | Debugging "wrong account" auth or switching between profiles and session tokens |
 | [`claude-code-unattended-bash`](skills/claude-code-unattended-bash/SKILL.md) | Three Bash patterns that block unattended sessions on approval prompts | Writing Bash for overnight jobs, background agents, or `/loop` polling |
