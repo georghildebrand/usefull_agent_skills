@@ -359,7 +359,9 @@ Include in the body:
 - Merge mode: ${repoPolicy.mergeMode}
 - CI: ${signals.ci?.state}
 - Approvals: ${signals.approval?.count}
-Populate repos=[${JSON.stringify(ctx.repo)}], tags=["close-pr", "<TAG_PROJECT>"], related_keys=[].
+Populate repos=[${JSON.stringify(ctx.repo)}], tags=["close-pr", "<TAG_PROJECT>"]${ctx.ticketId ? `, ticket_ids=["${ctx.ticketId}"]` : ''}.
+Do not pass related_keys - it is not a parameter on any memory write tool. If this
+episode needs graph edges, make a separate link call using the key the commit returns.
 Return JSON: {committed: boolean, memId: string, error: string}
 `
   memory = await agent(memPrompt, {

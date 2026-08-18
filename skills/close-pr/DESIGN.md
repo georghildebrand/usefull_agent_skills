@@ -44,7 +44,7 @@ A deterministic workflow keeps phases isolated, makes failures legible, and avoi
 | 5 | Merge | Auto-merge repo: post review comment with explicit issue-tracker link → approve → verify state with a final `pr get`. Manual repo: STOP, print the exact merge command for the user to run. | Hard stop on manual repos |
 | 6 | Cleanup | Delete local branch automatically after merge. Remote branch deletion is **per-branch confirmed**, never bulk. | No |
 | 7 | Ticket transition | Resolve ticket transition (e.g. `In Review` → `Done`). Execute. If transition is ambiguous, print the suggested CLI command instead of guessing. | No |
-| 8 | Memory commit + handoff | Write an episode to the project memory system, marked as an explicit per-PR commit. Populate `repos`, `tags`, `related_keys` so the item is retrievable. Print a one-line suggestion: `Merge landed on main. To follow the deploy pipeline, run /post-merge-validation`. | No |
+| 8 | Memory commit + handoff | Write an episode to the project memory system, marked as an explicit per-PR commit. Populate `repos`, `tags`, and `ticket_ids` so the item is retrievable; graph edges are a separate link call, not a write field. Print a one-line suggestion: `Merge landed on main. To follow the deploy pipeline, run /post-merge-validation`. | No |
 
 Phase 3 is the only place a barrier (`parallel` with `await all`) is justified: the decision in Phase 4 needs every signal at once. All other phases use pipeline-style sequencing.
 

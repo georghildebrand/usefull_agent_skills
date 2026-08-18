@@ -328,7 +328,9 @@ Commit a memory episode for this validation event.
 Project: <PROJECT_SLUG>
 Type: ops
 Summary: post-merge validation for ${ctx.repoFullPath} commit ${ctx.commit}; pipeline ${ctx.pipelineId}; stopped at ${stageOutcome.stoppedAt}; DBX findings ${dbxFindings.skipped ? 'skipped' : `${dbxFindings.findings.length} (${dbxFindings.findings.filter((f) => f.verdict === 'FLAG').length} flagged)`}.
-Populate repos=[<repo>], tags=["post-merge-validation", "<TAG_PROJECT>"], related_keys=[].
+Populate repos=[<repo>], tags=["post-merge-validation", "<TAG_PROJECT>"].
+Do not pass related_keys - it is not a parameter on any memory write tool. If this
+episode needs graph edges, make a separate link call using the key the commit returns.
 Return JSON: {committed: boolean, memId: string, error: string}.
 `
   memory = await agent(memPrompt, {

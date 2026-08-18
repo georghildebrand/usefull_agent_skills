@@ -68,12 +68,23 @@ Memory item lacking metadata = invisible to retrieval. Always populate:
 
 | Field | Why it matters | Example |
 |---|---|---|
-| `repos[]` | Enables repo-filtered lookup | `["service-api", "infra-tf"]` |
+| `repos[]` | Enables repo-filtered lookup | `["owner/service-api", "owner/infra-tf"]` |
 | `tags[]` | Tag-based recall filtering | `["aws", "auth", "gotcha"]` |
-| `related_keys[]` | Links items into a graph; prevents discovery islands | keys of adjacent concepts |
 
-Items missing all three fields = reachable only by full-text search — slow,
+Items missing both fields = reachable only by full-text search — slow,
 imprecise, skipped by most retrieval paths.
+
+**Graph links are a separate call, not a write field.** No create/commit/supersede
+tool takes a `related_keys` argument. Write the item first, then link the returned
+key: a generic `link_items(source_key, target_keys, relation_type=)` call for
+item-to-item edges, or a reference-linking call for source/evidence attachment.
+Unlinked items are valid — link when a relationship is real, not to fill a field.
+
+**Do not rely on repo inference.** Passing `repos` at all disables inference
+entirely, and inference itself only matches full forge URLs
+(`github.com|gitlab.com|bitbucket.org/<owner>/<repo>`) — bare repo names in prose
+are never picked up. Always pass `owner/repo` form explicitly, or repo-filtered
+lookup splits across two spellings of the same repo.
 
 ---
 
@@ -112,7 +123,8 @@ authoritative-looking but shallow entries.
 - Retrieval returns many items irrelevant to query
 - Sessions load same stale context repeatedly
 - Concepts contradict each other (one supersedes other but wasn't marked)
-- Items exist without repos/tags/related\_keys — invisible to primary retrieval
+- Items exist without repos/tags — invisible to primary retrieval
+- Items were never linked after creation, so the graph is all islands
 
 **Fix:** periodic review pass. Archive superseded items. Add missing metadata.
 Merge near-duplicate units into a concept. Smaller, well-linked graph
@@ -127,5 +139,5 @@ beats large, sparse one.
 - New contributors ask questions memory should answer
 
 **Fix:** lower bar for unit-level commits. Short, specific, tagged. A
-three-sentence learning with proper repos/tags/related\_keys beats
+three-sentence learning with proper repos/tags, linked afterwards, beats
 a long, untagged narrative.
