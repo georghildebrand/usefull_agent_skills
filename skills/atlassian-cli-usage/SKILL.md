@@ -184,6 +184,21 @@ atlassian-cli --profile <p> confluence search cql \
   "space.key = \"MYSPACE\" AND type = page" --limit 50
 ```
 
+### Reading page comments (inline + footer)
+
+```bash
+atlassian-cli --profile <p> confluence page comments <PAGE_ID>
+```
+
+Works directly — no v1-REST workaround needed, no `--replies` flag exists
+(`error: unexpected argument '--replies' found`). Verified on a page with 84
+comments: table came back with all 84 rows, `type` (`inline`/`footer`) and
+`resolution_status` (`open`/`resolved`) columns included.
+
+Limitation: `body_preview` is truncated (~50 chars). For full comment text use
+the v1 REST fallback in the Jira REST API section below (same pattern, swap
+the endpoint to `/wiki/rest/api/content/<PAGE_ID>/child/comment`).
+
 ---
 
 ## Bitbucket PR Create

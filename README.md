@@ -20,6 +20,7 @@ Reusable Claude Code skills collection. Each skill lives in `skills/<name>/SKILL
 | [`jira-ticket-workstream-overview`](skills/jira-ticket-workstream-overview/SKILL.md) | Cross-reference your Jira tickets against agent-memory workstreams; status, upcoming, blind spots | You want an overview of where your tickets stand vs your current focus areas |
 | [`close-pr`](skills/close-pr/SKILL.md) | Author-side PR close: format/pre-commit, push, poll CI + approvals, merge (manual or auto-merge), branch cleanup, ticket transition, memory episode | You want to take a finished PR from "implementation done" to "merged + archived" |
 | [`post-merge-validation`](skills/post-merge-validation/SKILL.md) | Poll the staged post-merge deploy pipeline, auto-approve dev gate only, run a Databricks task-count delta canary check when a DBX deploy is involved | You want to watch/validate a deployment after merging to main |
+| [`search-coverage-reporting`](skills/search-coverage-reporting/SKILL.md) | Report what a search did *not* examine; classify depth vs breadth questions before answering | You are answering a code question by grep/glob/read, or auditing/mapping something where completeness is the deliverable |
 | [`tempo-worklog-cli`](skills/tempo-worklog-cli/SKILL.md) | Log or query Tempo Timesheets worklogs on Jira Cloud via API | You want to fill in hours, check logged time, or automate Tempo entries |
 
 ## Contributing

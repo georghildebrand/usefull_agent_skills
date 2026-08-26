@@ -26,6 +26,20 @@ semantic pass (LLM) covers docs/PDF/image files only.
   Spark/S3). This is a **structural code graph** — it has no notion of
   runtime data flow through external storage. `graphify merge-graphs` only
   concatenates two graphs; it does not discover new cross-repo edges.
+  Measured on a real dbt-producer / Spark-consumer pair: the graphs gave
+  **zero** cross-repo signal. The only bridge was prose — literal repo names
+  mentioned in the consumer's own docstrings and test names. That is luck,
+  not capability.
+- **dbt lineage.** Even with the SQL grammar installed, `ref()` / `source()`
+  are Jinja, not SQL, so tree-sitter never resolves them. Measured on a
+  97-file dbt project: 52 nodes came from `.sql` files and **0 edges touched
+  any of them** — the whole model-to-model DAG (staging -> intermediate ->
+  mart layers) stayed invisible. Use `dbt ls` / `dbt docs` / the dbt manifest
+  for lineage instead.
+- **Which third-party library a module uses.** Only in-repo functions and
+  classes are extracted; there are no import nodes for external packages.
+  A plain `grep -rlE 'import (pkg_a|pkg_b)'` answers that faster than any
+  graph query.
 - For that class of problem, look at data-lineage tooling (OpenLineage,
   dbt-native lineage) or a multi-repo semantic-search tool (e.g. Sourcegraph),
   not graphify.
@@ -60,9 +74,17 @@ content, then delete `graphify-out/` and re-run — the incremental cache
 does not detect "grammar became available", only file changes:
 
 ```bash
-pip install "graphifyy[sql]"        # dbt / .sql-heavy repos
+pip install "graphifyy[sql]"        # dbt / .sql-heavy repos — see caveat below
 pip install "graphifyy[terraform]"  # .tf / .hcl repos
 ```
+
+Measured effect of the SQL extra on a 97-file dbt project: node
+coverage went from 90 nodes / 29 edges to **1051 nodes / 1001 edges**, so the
+`.sql` files finally appear at all. But every one of those new edges is still
+in shell scripts or JSON — the SQL nodes remain edgeless (see "NOT good for").
+Worth installing for file-level coverage; do not expect model lineage.
+Lock/seed JSON also dominates the edge count afterwards — consider excluding
+lock files.
 
 ## Keeping the graph current
 
