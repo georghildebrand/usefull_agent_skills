@@ -1,0 +1,14 @@
+{
+  "name": "usefull-agent-skills",
+  "owner": {
+    "name": "Georg Hildebrand"
+  },
+  "plugins": [
+    {
+      "name": "recent-tracker",
+      "source": "./recent-tracker",
+      "description": "Track recently edited files, split into design docs / code / memory notes, with repo links",
+      "version": "0.1.0"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+[
+  {"path": ".*/(README|CHANGELOG|LICENSE)[^/]*$", "ignore": true},
+  {"path": ".*\\.(md|rst|adoc)$", "category": "design-doc"},
+  {"tool": "mcp__zotero2ai__(memory_(create_item|commit_episode|supersede|synthesize)|create_or_extend_note)", "category": "memory-note"},
+  {"path": ".*", "category": "code"}
+]

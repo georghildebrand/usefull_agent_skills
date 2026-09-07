@@ -1,0 +1,10 @@
+# Local Claude Code state — contains absolute home paths
+.claude/settings.local.json
+
+# Spec-driven-development scaffolding: task briefs, agent reports, review notes.
+# Working notes, not publishable skill content.
+.superpowers/
+
+# PlantUML / tooling artefacts
+*.cmapx
+plantuml.jar
