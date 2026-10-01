@@ -45,6 +45,25 @@ atlassian-cli --profile <bitbucket-profile> bitbucket whoami
 
 If Bitbucket login affected Jira access, re-run Jira login for Jira profile.
 
+**Env-var token fallback overwrites the wrong credential when Jira and
+Bitbucket share one profile.** `--token` is optional on `auth login`. Left
+out, the CLI uses `$ATLASSIAN_API_TOKEN` if set, and only prompts
+interactively when that variable is unset (see `--help`: "falls back to
+ATLASSIAN_API_TOKEN env or interactive prompt"). If a shell startup file
+sources an env file that exports `ATLASSIAN_API_TOKEN` (a Jira token) into
+every session, any later `auth login --bitbucket` for a profile that also
+holds a Bitbucket token silently stores that Jira token as the Bitbucket
+credential — no prompt, no warning, no error. This has been observed in
+practice on a profile that held both a Jira and a Bitbucket token, with the
+env file sourced from `.zshrc`.
+
+Before any Bitbucket `auth login`, either:
+- pass `--token <TOKEN>` explicitly, or
+- unset the env var for that one command: `env -u ATLASSIAN_API_TOKEN atlassian-cli auth login --profile <p> --bitbucket --token <TOKEN>`
+
+Never rely on the interactive prompt appearing — check with
+`echo $ATLASSIAN_API_TOKEN` first if unsure whether it is set.
+
 ## Jira Basics
 
 ```bash
@@ -176,6 +195,7 @@ Use Jira/Confluence token flow for Jira profile; keep separate from Bitbucket lo
 |-----|---------|------------|
 | `auth list` looks fine but commands still fail | Wrong profile selection or token scope | Use target service command, e.g. `bitbucket whoami` |
 | `auth login --bitbucket` affects wrong profile | Default profile or stale config used | Re-run login with explicit `--profile`, verify immediately |
+| Bitbucket token works, then silently breaks later with no re-login run | A shell-sourced `ATLASSIAN_API_TOKEN` (Jira token) got used as the Bitbucket token by an `auth login` that omitted `--token` | Always pass `--token` explicitly for Bitbucket logins, or `env -u ATLASSIAN_API_TOKEN` first |
 | `jira issue delete` reports parse error after success | Jira returns `204 No Content` | Verify with `issue get`, don't trust exit text |
 
 ---

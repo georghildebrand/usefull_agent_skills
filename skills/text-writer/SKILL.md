@@ -61,6 +61,12 @@ words, so compress afterwards, not before.
   say what changed for them, not what your pipeline calls it.
 * **Name the concrete artifact.** "the deploy failed" → "the staging deploy of
   job 412 failed". Vagueness here is almost always curse of knowledge, not brevity.
+* **Give a correction its antecedent.** A sentence that revises an earlier belief
+  must name that belief in the same sentence. "One of my two assumptions was wrong"
+  is a definite reference to a set the reader was never given; the assumptions
+  existed only in your reasoning. Write the old claim and the new fact together:
+  "I assumed both tests were redundant; only `test_preflight_returns_empty` is."
+  Brevity here removes the apology, never the content of the error.
 
 ### 2. Fix sentence mechanics
 
@@ -139,6 +145,7 @@ and the filler `which`.
 | Producing a shorter text that is now missing the jargon gloss | Group 1 runs before group 4, and it may add words.         |
 | Applying the pass to a one-line answer                        | A short direct answer is already classic style.            |
 | Adding "In summary" to a three-paragraph text                 | That is metadiscourse.                                     |
+| Announcing that a belief was wrong without naming the belief   | Old claim and new fact belong in the same sentence.        |
 
 ## Attribution
 

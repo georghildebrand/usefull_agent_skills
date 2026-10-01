@@ -25,6 +25,36 @@ Reusable Claude Code skills collection. Each skill lives in `skills/<name>/SKILL
 | [`tempo-worklog-cli`](skills/tempo-worklog-cli/SKILL.md) | Log or query Tempo Timesheets worklogs on Jira Cloud via API | You want to fill in hours, check logged time, or automate Tempo entries |
 | [`c4-architecture-diagrams`](skills/c4-architecture-diagrams/SKILL.md) | C4 diagrams as PlantUML source: level/audience mapping, classification rules for the hard cases (managed cloud services, message buses, microservices, SPAs, libraries), repo layout by audience, shared `conventions.puml`, status tags for unbuilt architecture, per-level rot rate, diagramming vs modelling, review checklist, anti-patterns | You are writing or reviewing a C4 diagram, or setting up an architecture-as-code repo |
 | [`text-writer`](skills/text-writer/SKILL.md) | Revise prose for classic style and reader working memory: curse-of-knowledge gaps, sentence mechanics, the five heavy-noun-phrase plagues (DeScioli & Pinker 2021), metadiscourse; a do-not-touch list for identifiers/errors/quotes, a hedging guard rail so style passes cannot assert unverified facts, and a fixed diagnosis/revision/before-after output contract | You are writing or revising a PR body, ticket, design doc, release note, or any prose a human reads, and it reads dense, abstract, or hedged |
+| [`codebase-spec-reverse-engineering`](skills/codebase-spec-reverse-engineering/SKILL.md) | Perform a complete reverse-engineering analysis of a codebase to generate an exhaustive, implementation-ready Technical Specification Document for clean-room reimplementation | You need to reverse-engineer an existing repository into a zero-ambiguity, clean-room technical specification document covering domain invariants, schemas, state machines, math/algorithms, UI flows, and test fixtures |
+
+
+## Plugins
+
+Plugins add scripts and hooks on top of a skill. Install them from this
+repository as a marketplace; each keeps its state under `~/.claude/<name>/`.
+
+| Plugin | What it does | Use when |
+|---|---|---|
+| [`recent-tracker`](recent-tracker/) | Logs edited files and memory writes from a `PostToolUse` hook, split into design docs / code / memory notes | You want to see what you touched recently across projects |
+| [`usage-stats`](usage-stats/) | Weekly report over your own Claude Code transcripts: time per topic, share of prompts that correct or redirect the assistant, and sessions that produced no file change | You want to know where your Claude Code time goes and which prompts cost you rounds |
+
+`usage-stats` reads only the transcripts Claude Code already writes, so it needs
+no hook. It calls a cheap model to name topics; run `classify.py --dry-run`
+first to see the estimated cost.
+
+## Plugins
+
+Plugins add scripts and hooks on top of a skill. Install them from this
+repository as a marketplace; each keeps its state under `~/.claude/<name>/`.
+
+| Plugin | What it does | Use when |
+|---|---|---|
+| [`recent-tracker`](recent-tracker/) | Logs edited files and memory writes from a `PostToolUse` hook, split into design docs / code / memory notes | You want to see what you touched recently across projects |
+| [`usage-stats`](usage-stats/) | Weekly report over your own Claude Code transcripts: time per topic, share of prompts that correct or redirect the assistant, and sessions that produced no file change | You want to know where your Claude Code time goes and which prompts cost you rounds |
+
+`usage-stats` reads only the transcripts Claude Code already writes, so it needs
+no hook. It calls a cheap model to name topics; run `classify.py --dry-run`
+first to see the estimated cost.
 
 ## Contributing
 

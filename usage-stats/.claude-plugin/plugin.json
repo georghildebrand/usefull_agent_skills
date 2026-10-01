@@ -1,0 +1,5 @@
+{
+  "name": "usage-stats",
+  "description": "Weekly report on which topics your Claude Code sessions spend time on, how many prompts correct or redirect the assistant, and which sessions produced no change",
+  "version": "0.1.0"
+}

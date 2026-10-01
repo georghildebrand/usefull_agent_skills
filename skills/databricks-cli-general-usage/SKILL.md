@@ -61,6 +61,10 @@ Auth fails → check token expiry, workspace URL, active profile correct. Multi-
 | List clusters | `databricks clusters list --output json` | All clusters in workspace |
 | Get cluster status | `databricks clusters get --cluster-id <CLUSTER_ID>` | Running, pending, terminated |
 | Execute SQL | `databricks sql execute --statement "SELECT ..."` | v1.x only — absent in v1.2.x and older |
+| Execute SQL (newer builds) | `databricks experimental aitools tools query "SELECT ..." --output json` | Picks a warehouse; rows as JSON list |
+| Rerun one task | `databricks jobs run-now --json '{"job_id": <JOB_ID>, "only": ["<TASK_KEY>"]}'` | Other tasks show `DISABLED` |
+| Active runs | `databricks jobs list-runs --active-only --output json` | Lists all users' runs; filter by job ID |
+| Job cost | `system.billing.usage` × `system.billing.list_prices` | See section 8; billing lags hours |
 | List workspace assets | `databricks workspace list --path /` | Browse notebooks and files |
 | Export notebook | `databricks workspace export --path /Users/me/notebook --format SOURCE --file-path ./notebook.py` | Handy for backup or review |
 
@@ -221,6 +225,55 @@ databricks jobs get-run <RUN_ID> --output json | jq '{
 ```
 
 Two state fields, distinct meaning: `life_cycle_state` = lifecycle phase (RUNNING→TERMINATED); `result_state` = outcome (CANCELED/FAILED/SUCCESS). A cancel is confirmed by both, plus `user_cancelled_or_timedout=true`.
+
+### 8. Estimate What Job Runs Cost
+
+The system billing tables hold usage in DBUs (Databricks Units) per job run, and the list price per DBU. Query them with any SQL route (section 3, or `experimental aitools tools query` below).
+
+```sql
+-- 1. List price of the SKU your runs use (serverless SKUs differ per cloud region)
+SELECT sku_name, pricing.default AS price_per_dbu, currency_code, price_start_time, price_end_time
+FROM system.billing.list_prices
+WHERE sku_name = '<SKU_NAME>'            -- e.g. PREMIUM_JOBS_SERVERLESS_COMPUTE_<REGION>
+ORDER BY price_start_time DESC
+LIMIT 5;
+
+-- 2. DBUs and list cost per job run, joined to the price valid at usage time
+SELECT u.usage_metadata.job_id, u.usage_metadata.job_run_id, min(u.usage_date) AS day, u.sku_name,
+       ROUND(SUM(u.usage_quantity), 4) AS dbus,
+       ROUND(SUM(u.usage_quantity * p.pricing.default), 4) AS list_cost
+FROM system.billing.usage u
+LEFT JOIN system.billing.list_prices p
+  ON u.sku_name = p.sku_name
+ AND u.usage_start_time >= p.price_start_time
+ AND (p.price_end_time IS NULL OR u.usage_start_time < p.price_end_time)
+WHERE u.usage_metadata.job_id IN ('<JOB_ID_1>', '<JOB_ID_2>')
+GROUP BY 1, 2, 4
+ORDER BY 1, 3, 2;
+```
+
+Rules for reading the result:
+
+- **Billing lags.** Rows arrive hours after a run ends. For today's runs, estimate: DBU per task-minute of already-billed runs × task-minutes of the new run (task-minutes = sum of `execution_duration` of the tasks from `jobs get-run`).
+- **List price, not contract price.** `list_prices` holds public list prices; a negotiated discount is not in these tables.
+- **Only job compute.** SQL warehouse queries that you ran to explore data bill under a warehouse SKU and have no `job_id`; query them separately if they matter.
+- **Parse the join window correctly.** Join on `usage_start_time`, not on `usage_date` alone, or a price change inside a day double-counts.
+
+### 9. Lessons From Running Serverless Jobs
+
+| Situation | What happens | Do this |
+|-----------|--------------|---------|
+| Several dataset tasks in parallel in one job run | They can share one serverless compute; each task gets slower (seen: ~2.7× longer model fits) | Chain the tasks with `depends_on` + `run_if: ALL_DONE`, or start separate job runs |
+| Chained tasks under one job | Job-level `timeout_seconds` covers the whole run; tasks add up and the last one is killed with `TIMEDOUT` | Set the job timeout to the sum of task budgets; keep a per-task `timeout_seconds` too |
+| Rerun one task of a multi-task job | — | `databricks jobs run-now --json '{"job_id": <JOB_ID>, "only": ["<TASK_KEY>"]}'`; skipped tasks show `DISABLED` |
+| Logs of a multi-task run | `get-run-output` on the parent run ID fails | Take each task's `run_id` from `jobs get-run` → `.tasks[]`, then `get-run-output <TASK_RUN_ID>` |
+| Two tasks write the same new table at the same time | `CREATE TABLE IF NOT EXISTS` race | A small setup task creates schema and tables first; data tasks depend on it |
+| What runs right now? | `list-runs --active-only` lists every user's runs in the workspace | Filter by your job IDs before reporting |
+| Upload a script for `spark_python_task` | A notebook import breaks the task | `databricks workspace import <PATH> --file <LOCAL> --format AUTO --language PYTHON --overwrite` imports it as a FILE |
+| Script imports a sibling module from its own folder | `spark_python_task` runs the file through `exec()`: `__file__` is not defined → `NameError` at import | Take the folder from `sys.argv[0]` inside `try/except NameError`, and also add the known workspace folder to `sys.path` |
+| Serverless task needs a wheel plus a PyPI package | — | Environment `spec.dependencies`: `["/Workspace/<DIR>/<WHEEL>.whl", "<package>==<version>"]`, `environment_version` pinned |
+
+For ad-hoc SQL, newer CLI builds also offer `databricks experimental aitools tools query "<SQL>" --output json`; it picks a warehouse for you and returns rows as a JSON list.
 
 ## Version Compatibility
 
