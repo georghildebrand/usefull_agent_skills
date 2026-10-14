@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TALK TITLE</title>
+<!--
+  Interactive presentation engine: one offline file, no libraries.
+  Copy this file, keep the ENGINE part, replace the STATIONS part.
+  Every station = build() that draws SVG and returns steps [{cap, run}].
+  Deep link for checks: index.html?s=<station>&p=<step>&still
+-->
+<style>
+  :root {
+    --ink: #1C2430; --accent: #0F6E6E; --deep: #0B3B3C; --hl: #F07F2E;
+    --tint: #DCEBE7; --tint-2: #EEF5F3; --grey: #5F6B76; --hair: #CFD5DC; --light: #F0F1F3;
+    --green: #2E9E6A; --green-tint: #CDEDD5; --amber: #FFDFAE; --red: #C0392B; --red-tint: #F6CFCB; --ground: #FBFCFC;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #10191A; overflow: hidden; }
+  body { font-family: Aptos, "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; color: var(--ink); }
+  /* fixed 16:9 stage, scaled to the window by fit() */
+  #stage { position: absolute; left: 50%; top: 50%; width: 1600px; height: 900px; transform-origin: 0 0; background: var(--ground);
+    display: grid; grid-template-columns: 220px 1fr; grid-template-rows: 70px 1fr 140px; }
+  header { grid-column: 1 / 3; display: flex; align-items: center; gap: 18px; padding: 0 32px; border-bottom: 1px solid var(--hair); }
+  header > span { white-space: nowrap; flex-shrink: 0; }
+  header .brand { font-weight: 700; font-size: 22px; color: var(--deep); }
+  header .kicker { font-size: 13px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--hl); }
+  header .title { font-size: 26px; font-weight: 700; flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  header .spacer { flex: 1; flex-shrink: 1; }
+  header .keys { font-size: 12px; color: var(--grey); }
+  kbd { font: inherit; border: 1px solid var(--hair); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: #fff; }
+  nav { grid-row: 2 / 4; border-right: 1px solid var(--hair); padding: 10px; display: flex; flex-direction: column; gap: 1px; background: #fff; overflow-y: auto; }
+  nav .sec { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--hl); padding: 9px 8px 3px; }
+  nav button { all: unset; cursor: pointer; padding: 4px 8px 4px 14px; border-radius: 8px; font-size: 14px; line-height: 1.3; }
+  nav button:hover { background: var(--tint-2); }
+  nav button:focus-visible { outline: 2px solid var(--hl); outline-offset: 1px; }
+  nav button.on { background: var(--tint); font-weight: 700; box-shadow: inset 3px 0 0 var(--accent); }
+  main { position: relative; overflow: hidden; }
+  svg#map { position: absolute; inset: 0; width: 100%; height: 100%; }
+  footer { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 24px; padding: 0 40px; border-top: 1px solid var(--hair); background: #fff; }
+  #caption { font-size: 24px; line-height: 1.35; max-width: 72ch; text-wrap: balance; }
+  #dots { display: flex; gap: 8px; }
+  #dots span { width: 12px; height: 12px; border-radius: 50%; background: var(--hair); }
+  #dots span.on { background: var(--hl); } #dots span.done { background: var(--accent); }
+  /* SVG classes. CSS beats SVG presentation attributes: set single values via .style, not setAttribute. */
+  .box { fill: #fff; stroke: var(--hair); stroke-width: 1.5; }
+  .box.lib { fill: var(--light); stroke: none; } .box.job { fill: var(--tint); stroke: none; }
+  .box.inner { fill: #fff; stroke: none; } .box.green { fill: var(--green-tint); stroke: none; }
+  .box.amber { fill: var(--amber); stroke: none; } .box.redt { fill: var(--red-tint); stroke: none; }
+  .box.dark { fill: var(--accent); stroke: none; } .box.deep { fill: var(--deep); stroke: none; }
+  .t { font-size: 17px; fill: var(--ink); } .t.b { font-weight: 700; } .t.s { font-size: 14px; fill: var(--grey); }
+  .t.w { fill: #fff; } .t.o { fill: var(--hl); }
+  .t.h { font-size: 14px; font-weight: 700; letter-spacing: .12em; fill: var(--hl); text-transform: uppercase; }
+  .t.big { font-size: 46px; font-weight: 700; fill: var(--deep); }
+  .edge { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+  .edge.c { stroke-dasharray: 7 6; } .edge.c.run { animation: dash .8s linear infinite; }
+  @keyframes dash { to { stroke-dashoffset: -26; } }
+  .g { transition: opacity .5s ease; } .dim { opacity: .18; } .hide { opacity: 0; }
+  .pulse { animation: pulse 1.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+  @keyframes pulse { 50% { transform: scale(1.12); } }
+  .draw { stroke-dasharray: var(--len); stroke-dashoffset: var(--len); animation: draw .9s ease forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @media (prefers-reduced-motion: reduce) { .g { transition: none !important; } .pulse, .edge.c.run, .draw { animation: none !important; stroke-dashoffset: 0 !important; } }
+</style>
+</head>
+<body>
+<div id="stage">
+  <header>
+    <span class="brand">TALK TITLE</span><span class="kicker" id="kicker"></span><span class="title" id="title"></span><span class="spacer"></span>
+    <span class="keys"><kbd>→</kbd> next · <kbd>←</kbd> back · <kbd>1</kbd>–<kbd>9</kbd> section · <kbd>R</kbd> replay · <kbd>F</kbd> full screen</span>
+  </header>
+  <nav id="nav"></nav>
+  <main><svg id="map" viewBox="0 0 1380 690" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Animated diagram"></svg></main>
+  <footer><div id="caption" aria-live="polite"></div><div id="dots"></div></footer>
+</div>
+<script>
+"use strict";
+/* ======================= ENGINE (keep) ======================= */
+const NS = "http://www.w3.org/2000/svg", svg = document.getElementById("map");
+const REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let INSTANT = false;  // true while steps before the current one are replayed: no animation
+let gen = 0;          // bumped on every render: stale timers and tweens stop themselves
+const C = { accent: "#0F6E6E", hl: "#F07F2E", grey: "#5F6B76", hair: "#CFD5DC", light: "#F0F1F3", green: "#2E9E6A", red: "#C0392B" };
+
+function el(tag, attrs, parent, txt) { const e = document.createElementNS(NS, tag); for (const k in attrs || {}) e.setAttribute(k, attrs[k]); if (txt !== undefined) e.textContent = txt; (parent || svg).appendChild(e); return e; }
+function group(p, cls) { return el("g", { class: "g " + (cls || "") }, p); }
+function rect(p, x, y, w, h, cls, r) { return el("rect", { x, y, width: w, height: h, rx: r === undefined ? 12 : r, class: "box " + (cls || "") }, p); }
+function text(p, x, y, s, cls, anchor, size) { const t = el("text", { x, y, class: "t " + (cls || ""), "text-anchor": anchor || "start" }, p, s); if (size) t.style.fontSize = size + "px"; return t; }
+/* SVG text does not wrap: wrap by character count */
+function wrap(s, max) { const out = []; let line = ""; for (const w of s.split(" ")) { if ((line + " " + w).trim().length > max && line) { out.push(line); line = w; } else line = (line + " " + w).trim(); } if (line) out.push(line); return out; }
+function para(p, x, y, s, max, cls, anchor, size, lh) { wrap(s, max).forEach((l, i) => text(p, x, y + i * (lh || 22), l, cls, anchor, size)); }
+function boxLabel(p, x, y, w, h, cls, lines, tcls) {
+  const g = group(p); rect(g, x, y, w, h, cls);
+  const lh = 21, top = y + h / 2 - ((lines.length - 1) * lh) / 2 + 6;
+  lines.forEach((s, i) => text(g, x + w / 2, top + i * lh, s, (i === 0 ? "b " : "s ") + (tcls || ""), "middle"));
+  return g;
+}
+/* every timed effect goes through later/tween: both run instantly when INSTANT or REDUCE */
+function later(ms, fn) { const my = gen; if (INSTANT || REDUCE) { fn(); return; } setTimeout(() => { if (my === gen) fn(); }, ms); }
+function tween(ms, fn, done) {
+  const my = gen; if (INSTANT || REDUCE) { fn(1); if (done) done(); return; }
+  const t0 = performance.now();
+  (function f(t) { if (my !== gen) return; let p = Math.min(1, (t - t0) / ms); p = p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2; fn(p); if (p < 1) requestAnimationFrame(f); else if (done) done(); })(t0);
+}
+function show(n, on) { n.classList.toggle("hide", !on); }
+function dim(n, on) { n.classList.toggle("dim", on); }
+function hidden(n) { n.classList.add("hide"); return n; }
+function staggerIn(nodes, gap) { nodes.forEach(n => n.classList.add("hide")); nodes.forEach((n, k) => later(80 + k * (gap || 140), () => n.classList.remove("hide"))); }
+function defs() { const d = el("defs", {}); for (const [id, col] of [["arr", C.accent], ["arrO", C.hl], ["arrG", C.grey], ["arrR", C.red]]) { const m = el("marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, d); el("path", { d: "M0,0 L10,5 L0,10 z", fill: col }, m); } }
+function arrow(p, d, color, dashed) { const id = color === C.hl ? "arrO" : color === C.red ? "arrR" : color === C.grey ? "arrG" : "arr"; const a = el("path", { d, class: "edge" + (dashed ? " c" : ""), "marker-end": `url(#${id})` }, p); if (color) a.style.stroke = color; return a; }
+function drawPath(p, d, color) { const path = el("path", { d, class: "edge" }, p); if (color) path.style.stroke = color; path.style.setProperty("--len", path.getTotalLength()); if (!(INSTANT || REDUCE)) path.classList.add("draw"); return path; }
+/* a token (circle) that travels along a path: the core of "show the process moving" */
+function moveToken(tok, d, ms, done) { const path = el("path", { d, fill: "none", stroke: "none" }); const L = path.getTotalLength(); tween(ms, q => { const pt = path.getPointAtLength(q * L); tok.setAttribute("cx", pt.x); tok.setAttribute("cy", pt.y); }, () => { path.remove(); if (done) done(); }); }
+function slideX(g, from, to, ms, done) { tween(ms, q => g.setAttribute("transform", `translate(${from + (to - from) * q},0)`), done); }
+function badge(p, x, y, ok, r) { const g = group(p); el("circle", { cx: x, cy: y, r: r || 14, fill: ok === true ? C.green : ok === false ? C.red : C.hl }, g); text(g, x, y + 6, ok === true ? "✓" : ok === false ? "✗" : "…", "w b", "middle", 16); return g; }
+
+const SECTIONS = [], STATIONS = [];
+function station(sec, name, build) { STATIONS.push({ sec, name, build }); }
+
+/* ======================= STATIONS (replace) ======================= */
+SECTIONS.push("Start", "1 Example section");
+
+station(1, "Release path", () => {
+  defs();
+  const X = [80, 520, 960];
+  ["Merge to main", "Deploy job", "Start suite"].forEach((s, k) => { boxLabel(svg, X[k], 250, 300, 110, "job", [s]); if (k < 2) arrow(svg, `M${X[k] + 302},305 L${X[k + 1] - 6},305`); });
+  const tok = hidden(el("circle", { cx: 230, cy: 305, r: 14, fill: C.hl }));
+  const done = hidden(group(svg)); rect(done, 960, 420, 300, 70, "green"); text(done, 1110, 462, "release record written", "b", "middle");
+  return [
+    { cap: "A merge to main is a release.", run() { show(tok, true); tok.classList.add("pulse"); } },
+    { cap: "The pipeline deploys the job.", run() { tok.classList.remove("pulse"); moveToken(tok, "M230,305 L670,305", 1000); } },
+    { cap: "Then it starts the suite and does not wait.", run() { moveToken(tok, "M670,305 L1110,305", 1000, () => show(done, true)); } },
+  ];
+});
+
+/* ======================= NAVIGATION (keep) ======================= */
+let cur = 0, step = 0, steps = [];
+const nav = document.getElementById("nav"); let lastSec = -1;
+STATIONS.forEach((s, k) => {
+  if (s.sec !== lastSec) { lastSec = s.sec; nav.appendChild(Object.assign(document.createElement("div"), { className: "sec", textContent: SECTIONS[s.sec] })); }
+  const b = document.createElement("button"); b.textContent = s.name; b.addEventListener("click", () => go(k, 0)); nav.appendChild(b);
+});
+const navButtons = [...nav.querySelectorAll("button")];
+/* rebuild the station, replay earlier steps instantly, animate only the current step */
+function render(animate) {
+  gen++; while (svg.firstChild) svg.removeChild(svg.firstChild);
+  steps = STATIONS[cur].build();
+  INSTANT = true; for (let k = 0; k < step; k++) steps[k].run();
+  INSTANT = !animate; steps[step].run(); INSTANT = false;
+  document.getElementById("caption").textContent = steps[step].cap;
+  document.getElementById("title").textContent = STATIONS[cur].name;
+  document.getElementById("kicker").textContent = SECTIONS[STATIONS[cur].sec];
+  navButtons.forEach((b, k) => b.classList.toggle("on", k === cur)); navButtons[cur].scrollIntoView({ block: "nearest" });
+  document.getElementById("dots").innerHTML = steps.map((_, k) => `<span class="${k === step ? "on" : k < step ? "done" : ""}"></span>`).join("");
+  try { localStorage.setItem("talk-pos", JSON.stringify([cur, step])); } catch (e) { /* storage blocked */ }
+}
+function go(st, sp) { cur = st; step = sp; render(true); }
+function next() { if (step < steps.length - 1) { step++; render(true); } else if (cur < STATIONS.length - 1) go(cur + 1, 0); }
+function back() { if (step > 0) { step--; render(false); } else if (cur > 0) { cur--; steps = STATIONS[cur].build(); step = steps.length - 1; render(false); } }
+const firstOf = sec => STATIONS.findIndex(s => s.sec === sec);
+addEventListener("keydown", e => {
+  if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); next(); }
+  else if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); back(); }
+  else if (/^[0-9]$/.test(e.key) && firstOf(+e.key) >= 0) go(firstOf(+e.key), 0);
+  else if (e.key === "r" || e.key === "R") render(true);
+  else if (e.key === "f" || e.key === "F") { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {}); else document.exitFullscreen(); }
+});
+document.querySelector("main").addEventListener("click", next);
+function fit() { const s = Math.min(innerWidth / 1600, innerHeight / 900); document.getElementById("stage").style.transform = `scale(${s}) translate(-50%, -50%)`; }
+addEventListener("resize", fit); fit();
+(function start() {
+  const q = new URLSearchParams(location.search);
+  if (q.has("s")) { cur = Math.min(STATIONS.length - 1, Math.max(0, +q.get("s"))); step = +(q.get("p") || 0); }
+  else { try { const p = JSON.parse(localStorage.getItem("talk-pos")); if (p && p[0] < STATIONS.length) { cur = p[0]; step = p[1]; } } catch (e) { /* storage blocked */ } }
+  steps = STATIONS[cur].build(); if (step >= steps.length) step = steps.length - 1;
+  render(!q.has("still"));
+})();
+</script>
+</body>
+</html>
