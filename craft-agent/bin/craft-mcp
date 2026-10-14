@@ -1,0 +1,68 @@
+#!/bin/bash
+# craft-mcp: start the MCP server of one ArtCraft tool for the craft-<tool> agents.
+#
+#   craft-mcp <tool> [--live]   run the server on stdio
+#   craft-mcp --check <tool>    exit 0 if the tool's CLI binary is built
+#
+# The server runs with $CRAFT_HOME/jobs as working directory; its stderr goes to
+# $CRAFT_HOME/logs/<tool>.log. In server mode this script prints nothing on
+# stdout: stdout carries the MCP messages.
+# Exit codes: 2 usage, 3 live app not reachable, 4 binary missing, 5 config missing
+# or craft-guard not on PATH (without it the agent's hook cannot run, and Claude
+# Code would let the tool calls through unchecked).
+self=$(readlink -f "$0" 2>/dev/null)
+[ -n "$self" ] || { echo "craft-mcp: cannot find its own folder (readlink -f failed)" >&2; exit 5; }
+CRAFT_BIN=$(dirname "$self")
+# shellcheck source=lib/craft-common.sh
+. "$CRAFT_BIN/lib/craft-common.sh"
+
+usage() { craft_fail 2 "usage: craft-mcp <tool> [--live] | craft-mcp --check <tool>"; }
+
+check=0
+mode=headless
+if [ "${1:-}" = "--check" ]; then
+  check=1
+  shift
+fi
+[ $# -ge 1 ] || usage
+tool=$1
+shift
+if [ "${1:-}" = "--live" ]; then
+  mode=live
+  shift
+fi
+[ $# -eq 0 ] || usage
+if [ $check -eq 1 ] && [ $mode = live ]; then usage; fi
+
+command -v craft-guard >/dev/null 2>&1 \
+  || craft_fail 5 "craft-guard not found on PATH; the agent hook cannot run"
+craft_load_config || exit 5
+craft_read_row "$tool" || craft_fail 2 "craft-mcp: unknown tool '$tool' (known: $(craft_tool_keys))"
+
+bin="$CRAFT_HOME/bin/$TOOL_CLI"
+[ -x "$bin" ] || craft_fail 4 "$TOOL_CLI not built: run make build TOOL=$tool"
+if [ $check -eq 1 ]; then
+  echo "$TOOL_CLI is built: $bin"
+  exit 0
+fi
+
+port=$((CRAFT_PORT_BASE + TOOL_OFFSET))
+mkdir -p "$CRAFT_JOBS" "$CRAFT_HOME/logs" "$CRAFT_HOME/state/$tool" || exit 5
+log="$CRAFT_HOME/logs/$tool.log"
+
+if [ $mode = live ]; then
+  [ "$TOOL_LIVE" != "-" ] || craft_fail 2 "craft-mcp: $tool has no live mode"
+  if ! (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+    msg="craft-mcp: the $tool app is not reachable on 127.0.0.1:$port. Start it with: craft-app $tool"
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $msg" >>"$log"
+    craft_fail 3 "$msg"
+  fi
+  template=$TOOL_LIVE
+else
+  template=$TOOL_HEADLESS
+fi
+
+craft_expand_args "$template" "$port"
+cd "$CRAFT_JOBS" || exit 5
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) start $mode: $TOOL_CLI ${CRAFT_ARGS[*]}" >>"$log"
+exec "$bin" "${CRAFT_ARGS[@]}" 2>>"$log"

@@ -1,0 +1,3 @@
+# Local link to this machine's CRAFT_HOME, created by `make install`.
+.craft-home
+__pycache__/

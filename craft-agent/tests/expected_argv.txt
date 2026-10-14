@@ -1,0 +1,25 @@
+# <tool> <mode> | <expected command line>
+# {J} = $CRAFT_HOME/jobs, {H} = $CRAFT_HOME, {P} = the port the test opened.
+# Written by hand from the CLI source review. Do NOT generate this file from
+# tools.toml: it exists to catch a wrong flag in tools.toml.
+cad headless | cadcraft-cli mcp
+cad live | cadcraft-cli mcp --connect 127.0.0.1:{P}
+design headless | designcraft-cli mcp
+design live | designcraft-cli mcp --connect 127.0.0.1:{P}
+fig headless | figcraft-cli mcp
+fig live | figcraft-cli mcp --attach 127.0.0.1:{P}
+film headless | filmcraft-cli mcp
+film live | filmcraft-cli mcp --bridge 127.0.0.1:{P}
+grid headless | gridcraft-cli mcp
+grid live | gridcraft-cli mcp --connect 127.0.0.1:{P}
+light headless | lightcraft-cli mcp --headless --compact --library {H}/state/light
+light live | lightcraft-cli mcp --connect 127.0.0.1:{P} --compact
+pdf headless | pdfcraft-cli mcp --root {J} --compact
+photo headless | photocraft-cli mcp --automation-read-root {J} --automation-write-root {J}
+photo live | photocraft-cli mcp --bridge 127.0.0.1:{P} --control-token-file {H}/photo.token
+sound headless | soundcraft-cli mcp --automation-read-root {J} --automation-write-root {J}
+sound live | soundcraft-cli mcp --connect 127.0.0.1:{P}
+vector headless | vectorcraft-cli mcp --automation-read-root {J} --automation-write-root {J}
+vector live | vectorcraft-cli mcp --connect 127.0.0.1:{P}
+word headless | wordcraft-cli mcp --automation-read-root {J} --automation-write-root {J}
+word live | wordcraft-cli mcp --connect 127.0.0.1:{P}

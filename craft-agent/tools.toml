@@ -1,0 +1,195 @@
+# One table per ArtCraft tool. `make generate` turns this file into
+# bin/tools.tsv (read by the bash scripts) and agents/craft-<tool>.md.
+#
+# Argument lists hold tokens without spaces. The scripts replace:
+#   {jobs}  -> $CRAFT_HOME/jobs      {state} -> $CRAFT_HOME/state
+#   {home}  -> $CRAFT_HOME           {port}  -> CRAFT_PORT_BASE + port_offset
+# An empty `live` list means the tool has no live MCP mode; then `app_args`
+# must be empty too. Flags come from each tool's CLI source (apps/<repo>-cli).
+
+[tool.cad]
+repo = "cadcraft"
+cli = "cadcraft-cli"
+app = "cadcraft"
+agent = "craft-cad"
+title = "CADCraft"
+port_offset = 0
+headless = ["mcp"]
+live = ["mcp", "--connect", "127.0.0.1:{port}"]
+app_args = ["--control", "{port}"]
+token_file = ""
+description = "Edits and converts CAD drawings (DXF, DWG) with CADCraft: draw, change, inspect, export to PNG or SVG."
+notes = """
+- CADCraft has no folder limit of its own. Use only paths inside the job folder.
+- Commands use AutoCAD-style names. Look them up before you use them.
+"""
+
+[tool.design]
+repo = "designcraft"
+cli = "designcraft-cli"
+app = "designcraft"
+agent = "craft-design"
+title = "DesignCraft"
+port_offset = 1
+headless = ["mcp"]
+live = ["mcp", "--connect", "127.0.0.1:{port}"]
+app_args = ["--control", "{port}"]
+token_file = ""
+description = "Lays out pages with DesignCraft (InDesign-style): documents, text frames, images, IDML, EPUB and PDF export."
+notes = """
+- DesignCraft has no folder limit of its own. Use only paths inside the job folder.
+"""
+
+[tool.fig]
+repo = "figcraft"
+cli = "figcraft-cli"
+app = "figcraft"
+agent = "craft-fig"
+title = "FigCraft"
+port_offset = 2
+headless = ["mcp"]
+live = ["mcp", "--attach", "127.0.0.1:{port}"]
+app_args = ["--control", "{port}"]
+token_file = ""
+description = "Designs user interfaces with FigCraft (Figma-style): frames, auto layout, components, render to PNG, export SVG."
+notes = """
+- FigCraft files use the `.figcraft` format.
+- FigCraft has no folder limit of its own. Use only paths inside the job folder.
+"""
+
+[tool.film]
+repo = "filmcraft"
+cli = "filmcraft-cli"
+app = "filmcraft"
+agent = "craft-film"
+title = "FilmCraft"
+port_offset = 3
+headless = ["mcp"]
+live = ["mcp", "--bridge", "127.0.0.1:{port}"]
+app_args = ["--control", "{port}"]
+token_file = ""
+description = "Edits video with FilmCraft (Premiere Pro-style): cut, trim, color, sound, captions, export."
+notes = """
+- FilmCraft has more than 650 commands. Search for the one you need.
+- Exports can take minutes. Wait until the export has finished before you check the file.
+- FilmCraft has no folder limit of its own. Use only paths inside the job folder.
+"""
+
+[tool.grid]
+repo = "gridcraft"
+cli = "gridcraft-cli"
+app = "gridcraft"
+agent = "craft-sheet"
+title = "GridCraft"
+port_offset = 4
+headless = ["mcp"]
+live = ["mcp", "--connect", "127.0.0.1:{port}"]
+app_args = ["--control", "{port}"]
+token_file = ""
+description = "Works with spreadsheets in GridCraft (Excel-style): read and write cells, formulas, charts, XLSX files."
+notes = """
+- Tools include read_range, write_range, set_cell and evaluate_formula.
+- GridCraft has no folder limit of its own. Use only paths inside the job folder.
+"""
+
+[tool.light]
+repo = "lightcraft"
+cli = "lightcraft-cli"
+app = "lightcraft"
+agent = "craft-light"
+title = "LightCraft"
+port_offset = 5
+headless = ["mcp", "--headless", "--compact", "--library", "{state}/light"]
+live = ["mcp", "--connect", "127.0.0.1:{port}", "--compact"]
+app_args = ["--control", "{port}"]
+token_file = ""
+description = "Develops and exports photos with LightCraft: raw files, exposure, color, batches of photos."
+notes = """
+- `import` scans folders recursively. Import only `<job>/in` or files inside it.
+- The server runs with --compact: commands that are not listed are reachable through the server's generic command tool (find it with the list tool).
+- LightCraft has no folder limit of its own. Use only paths inside the job folder.
+"""
+
+[tool.pdf]
+repo = "pdfcraft"
+cli = "pdfcraft-cli"
+app = "pdfcraft"
+agent = "craft-pdf"
+title = "PdfCraft"
+port_offset = 6
+headless = ["mcp", "--root", "{jobs}", "--compact"]
+live = []
+app_args = []
+token_file = ""
+description = "Edits PDF files with PdfCraft (Acrobat-style): pages, merge, split, comments, forms, passwords, text search, pages to PNG."
+notes = """
+- The server runs with --compact: core tools are listed; find others with tool_search and call them with tool_call.
+- doc_batch walks folders recursively. Use it only on folders inside the job.
+- PdfCraft's own --root flag limits it to the jobs folder.
+"""
+
+[tool.photo]
+repo = "photocraft"
+cli = "photocraft-cli"
+app = "photocraft"
+agent = "craft-photo"
+title = "PhotoCraft"
+port_offset = 7
+headless = ["mcp", "--automation-read-root", "{jobs}", "--automation-write-root", "{jobs}"]
+live = ["mcp", "--bridge", "127.0.0.1:{port}", "--control-token-file", "{home}/photo.token"]
+app_args = ["--control", "{port}", "--control-token-file", "{home}/photo.token"]
+token_file = "photo.token"
+description = "Edits images with PhotoCraft (Photoshop-style): layers, masks, adjustments, text, PSD files."
+notes = """
+- In headless mode PhotoCraft's own read and write roots limit it to the jobs folder.
+"""
+
+[tool.sound]
+repo = "soundcraft"
+cli = "soundcraft-cli"
+app = "soundcraft"
+agent = "craft-sound"
+title = "SoundCraft"
+port_offset = 8
+headless = ["mcp", "--automation-read-root", "{jobs}", "--automation-write-root", "{jobs}"]
+live = ["mcp", "--connect", "127.0.0.1:{port}"]
+app_args = ["--control", "{port}"]
+token_file = ""
+description = "Records, edits and mixes audio with SoundCraft (Pro Tools-style): tracks, effects, mixing, bounce to a file."
+notes = """
+- In headless mode SoundCraft's own read and write roots limit it to the jobs folder.
+"""
+
+[tool.vector]
+repo = "vectorcraft"
+cli = "vectorcraft-cli"
+app = "vectorcraft"
+agent = "craft-vector"
+title = "VectorCraft"
+port_offset = 9
+headless = ["mcp", "--automation-read-root", "{jobs}", "--automation-write-root", "{jobs}"]
+live = ["mcp", "--connect", "127.0.0.1:{port}"]
+app_args = ["--control", "{port}"]
+token_file = ""
+description = "Creates and edits vector graphics with VectorCraft (Illustrator-style): paths, shapes, text, SVG, AI and EPS files."
+notes = """
+- VectorCraft is alpha software. Check every export.
+- In headless mode VectorCraft's own read and write roots limit it to the jobs folder.
+"""
+
+[tool.word]
+repo = "wordcraft"
+cli = "wordcraft-cli"
+app = "wordcraft"
+agent = "craft-word"
+title = "WordCraft"
+port_offset = 10
+headless = ["mcp", "--automation-read-root", "{jobs}", "--automation-write-root", "{jobs}"]
+live = ["mcp", "--connect", "127.0.0.1:{port}"]
+app_args = ["--control", "{port}"]
+token_file = ""
+description = "Writes and edits documents with WordCraft (Word-style): text, styles, tables, DOCX files, PDF export."
+notes = """
+- inspect_document shows the document structure. Use it to check your work without screenshots.
+- In headless mode WordCraft's own read and write roots limit it to the jobs folder.
+"""

@@ -43,6 +43,15 @@ repository as a marketplace; each keeps its state under `~/.claude/<name>/`.
 no hook. It calls a cheap model to name topics; run `classify.py --dry-run`
 first to see the estimated cost.
 
+## Agents
+
+Standalone subagents with their own MCP servers. They are not plugins, because a
+plugin agent cannot start its own MCP servers. Each one has its own `make install`.
+
+| Agent | What it does | Use when |
+|---|---|---|
+| [`craft-agent`](craft-agent/) | `/craft` plus 11 `craft-<tool>` agents that drive the open-source ArtCraft desktop apps (PDF, documents, spreadsheets, photos, vector, CAD, layout, video, audio) over MCP, on copies of your files in a job folder | You want an agent to edit or convert a file with an open-source desktop tool |
+
 ## Contributing
 
 - Keep skills focused on one job.

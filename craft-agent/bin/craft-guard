@@ -1,0 +1,186 @@
+#!/bin/bash
+# craft-guard: PreToolUse hook for the craft-<tool> agents.
+#
+# Claude Code sends the planned tool call as JSON on stdin. The hook blocks the
+# call (exit 2; the reason on stderr is shown to the model) when
+#   - a craft MCP tool (mcp__craft-*) receives a path outside $CRAFT_HOME/jobs,
+#   - Read receives a path outside $CRAFT_HOME/jobs and $CRAFT_HOME/logs,
+#   - any string or path names a secret file.
+# jq collects every string and object key of tool_input (strings that hold JSON
+# are parsed and their strings collected too), tests the secret file names, and
+# hands only path-like strings to the bash checks below:
+#   - whole strings that start with /, ~ or file:, contain /, or are ..,
+#   - words inside a string that start with /, ~ or file: (words are split at
+#     white space and at ' " ` [ ] ( ) , ; = ! < > |),
+#   - plain names that exist in the jobs folder (for example a symlink).
+# Anything unexpected blocks the call (fail closed). Claude Code treats a hook
+# that times out as "allow", so the hook stops early when a call has too many
+# strings or the checks take too long.
+# Every decision is appended to $CRAFT_HOME/logs/guard.log.
+self=$(readlink -f "$0" 2>/dev/null)
+if [ -z "$self" ]; then
+  echo "craft-guard blocked this call: cannot find its own folder (readlink -f failed)" >&2
+  exit 2
+fi
+CRAFT_BIN=$(dirname "$self")
+# shellcheck source=lib/craft-common.sh
+. "$CRAFT_BIN/lib/craft-common.sh"
+
+MAX_STRINGS=5000
+MAX_SECONDS=20
+tool_name="-"
+
+log_decision() {
+  [ -n "${CRAFT_HOME:-}" ] || return 0
+  mkdir -p "$CRAFT_HOME/logs" 2>/dev/null
+  printf '%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$tool_name" "$1" "$2" \
+    >>"$CRAFT_HOME/logs/guard.log" 2>/dev/null
+}
+
+deny() {
+  log_decision deny "$1"
+  echo "craft-guard blocked this call: $1" >&2
+  exit 2
+}
+
+craft_load_config 2>/dev/null || deny "craft config not found (run make install)"
+
+if [ -n "${CRAFT_JQ:-}" ]; then
+  JQ=$CRAFT_JQ
+else
+  JQ=/usr/bin/jq
+  [ -x "$JQ" ] || JQ=$(command -v jq)
+fi
+{ [ -n "$JQ" ] && [ -x "$JQ" ]; } || deny "jq not found"
+
+input=$(cat)
+tool_name=$(printf '%s' "$input" | "$JQ" -r '.tool_name // empty' 2>/dev/null) \
+  || deny "hook input is not JSON"
+[ -n "$tool_name" ] || deny "hook input has no tool_name"
+
+# root and root2: the real folders a path may lie in. prefixes: their spellings,
+# cut off a string before it is split into words.
+root2=""
+case $tool_name in
+  Read)
+    root=$(craft_real_path "$CRAFT_JOBS") || deny "cannot resolve the jobs folder"
+    root2=$(craft_real_path "$CRAFT_HOME/logs") || deny "cannot resolve the logs folder"
+    prefixes=("$CRAFT_JOBS" "$root" "$CRAFT_HOME/logs" "$root2")
+    ;;
+  mcp__craft-*)
+    root=$(craft_real_path "$CRAFT_JOBS") || deny "cannot resolve the jobs folder"
+    prefixes=("$CRAFT_JOBS" "$root")
+    ;;
+  *) log_decision allow "not a craft tool"; exit 0 ;;
+esac
+
+path_existed=0
+check_path() {
+  # check_path <string>: deny unless the path in <string> lies in root or root2.
+  # Sets path_existed=1 when the path exists.
+  local s=$1 shown=$1 p real r host
+  path_existed=0
+  case $s in
+    [Ff][Ii][Ll][Ee]:*)
+      case $s in
+        *%*) deny "file URL with percent-encoding is outside the allowed folder: $shown" ;;
+      esac
+      r=${s#?????}
+      case $r in
+        //*)
+          r=${r#//}
+          host=${r%%/*}
+          case $host in
+            "") ;;
+            [Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]) ;;
+            *) deny "file URL with a host is outside the allowed folder: $shown" ;;
+          esac
+          case $r in
+            */*) r=/${r#*/} ;;
+            *) r=${r#"$host"} ;;
+          esac
+          ;;
+      esac
+      s=$r
+      [ -n "$s" ] || deny "path outside the allowed folder: empty file URL"
+      ;;
+  esac
+  # shellcheck disable=SC2088 # the quoted tilde is a literal pattern on purpose
+  case $s in
+    /*) p=$s ;;
+    "~"|"~/"*) p=$HOME${s#"~"} ;;
+    "~"*) deny "path outside the allowed folder (user home spelling): $shown" ;;
+    *) p=$CRAFT_JOBS/$s ;;
+  esac
+  if craft_is_secret_name "$p"; then deny "secret file name: $shown"; fi
+  craft_real_path_var "$p" || deny "path cannot be resolved safely: $shown"
+  real=$CRAFT_REAL
+  if craft_is_secret_name "$real"; then deny "secret file name: $shown"; fi
+  craft_is_under "$real" "$root" \
+    || { [ -n "$root2" ] && craft_is_under "$real" "$root2"; } \
+    || deny "path outside the allowed folder: $shown"
+  if [ -e "$p" ]; then path_existed=1; fi
+  return 0
+}
+
+# Output: NUL-separated records, the first character is the kind:
+#   C<count>   more than MAX_STRINGS strings      X<string>  secret file name
+#   P<string>  path-like string                   B<string>  plain name
+#   T<word>    path-like word of the string before (skipped when that path exists)
+read -r -d '' filter <<'JQ'
+def S: .. | (strings, (objects | keys_unsorted[]));
+def secret: ascii_downcase | split("/")
+  | any(.[]; contains(".env") or . == "credentials" or . == ".databrickscfg" or . == ".netrc");
+def absolute: test("^(/|~|[Ff][Ii][Ll][Ee]:)");
+def pathlike: absolute or contains("/") or . == "..";
+def delim: "[\\s'\"`\\[\\](),;=!<>|]+";
+def unfile: sub("^[Ff][Ii][Ll][Ee]:(//([Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt])?)?"; "");
+def rest_after_root: (unfile) as $u
+  | first($ARGS.positional[] | select(length > 0) | . + "/" | select(. as $r | $u | startswith($r))
+          | . as $r | $u | .[($r | length):]) // null;
+def words: rest_after_root as $t
+  | (if $t != null then [$t | splits(delim)]
+     elif absolute then [splits(delim)] | .[1:]
+     else [splits(delim)] end)
+  | .[] | select(. != "/" and absolute);
+([.tool_input | S] + [.tool_input | .. | strings | (try fromjson catch empty) | S]) as $all
+| if ($all | length) > $max then "C\($all | length)"
+  else
+    [$all | unique[] | {s: ., w: [words]}] as $recs
+    | ([$recs[] | (.s, .w[]) | select(secret)] | first) as $sec
+    | if $sec != null then "X" + $sec
+      else $recs[] | ((if (.s | pathlike) then "P" else "B" end) + .s), ("T" + .w[])
+      end
+  end
+JQ
+
+strings=$(mktemp) || deny "mktemp failed"
+trap 'rm -f "$strings"' EXIT
+printf '%s' "$input" \
+  | "$JQ" --raw-output0 --argjson max "$MAX_STRINGS" "$filter" --args "${prefixes[@]}" \
+    >"$strings" 2>/dev/null \
+  || deny "cannot read tool_input"
+
+SECONDS=0
+skip_words=0
+while IFS= read -r -d '' rec; do
+  [ "$SECONDS" -lt "$MAX_SECONDS" ] || deny "too many paths to check in time"
+  s=${rec#?}
+  case $rec in
+    C*) deny "too many strings to check ($s, at most $MAX_STRINGS)" ;;
+    X*) deny "secret file name: $s" ;;
+    P*) check_path "$s"; skip_words=$path_existed ;;
+    B*)
+      skip_words=0
+      if [ -n "$s" ] && { [ -e "$CRAFT_JOBS/$s" ] || [ -L "$CRAFT_JOBS/$s" ]; }; then
+        check_path "$s"
+        skip_words=$path_existed
+      fi
+      ;;
+    T*) [ "$skip_words" = 1 ] || check_path "$s" ;;
+    *) deny "cannot read tool_input" ;;
+  esac
+done <"$strings"
+
+log_decision allow "paths ok"
+exit 0

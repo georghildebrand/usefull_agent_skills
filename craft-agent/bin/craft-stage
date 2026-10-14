@@ -1,0 +1,127 @@
+#!/bin/bash
+# craft-stage: copy input files into a job folder for the craft-<tool> agents.
+#
+#   craft-stage <job-slug> [file-or-folder...]
+#
+# Creates $CRAFT_HOME/jobs/<job-slug>/{in,out,out/_failed}, copies the inputs into
+# in/ (APFS clone with cp -c when possible) and prints the job folder.
+# Refuses (exit 2, nothing copied): secret file names, paths outside
+# CRAFT_READ_ROOT, folders that contain secret files or symlinks, names that
+# already exist in in/, and two inputs with the same name.
+self=$(readlink -f "$0" 2>/dev/null)
+[ -n "$self" ] || { echo "craft-stage: cannot find its own folder (readlink -f failed)" >&2; exit 5; }
+CRAFT_BIN=$(dirname "$self")
+# shellcheck source=lib/craft-common.sh
+. "$CRAFT_BIN/lib/craft-common.sh"
+
+# Succeeds (returns 0) if any path component of $1 below root $2 is stored on
+# disk under a secret name. The file system may fold the typed name (case,
+# Unicode), so look the stored name up through the inode.
+stored_secret() {
+  local p=$1 root=$2 rest comp cur ino n names
+  rest=${p#"$root"}
+  cur=$root
+  while [ -n "$rest" ]; do
+    rest=${rest#/}
+    [ -n "$rest" ] || break
+    comp=${rest%%/*}
+    case $rest in */*) rest=/${rest#*/} ;; *) rest= ;; esac
+    cur=$cur/$comp
+    ino=$(stat -f %i "$cur") || return 0
+    # The entry always shows up under its stored name. If find fails or
+    # returns no name, the check could not run: treat it as secret (fail closed).
+    names=$(find "$(dirname "$cur")" -maxdepth 1 -inum "$ino" -print 2>/dev/null) || return 0
+    [ -n "$names" ] || return 0
+    while IFS= read -r n; do
+      craft_is_secret_name "/$(basename "$n")" && return 0
+    done <<EOF
+$names
+EOF
+  done
+  return 1
+}
+
+refuse() { craft_fail 2 "craft-stage: $1"; }
+
+[ $# -ge 1 ] || craft_fail 2 "usage: craft-stage <job-slug> [file-or-folder...]"
+slug=$1
+shift
+# Test the whole string in bash: grep would test each line on its own, so a
+# newline in the slug would pass. The letters are listed one by one because a
+# range such as A-Z may include other characters in some locales.
+alnum=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
+slug_re="^[$alnum][$alnum._-]{0,79}\$"
+case $slug in
+  *[[:cntrl:]]*) refuse "bad job slug (contains a control character such as a newline)" ;;
+esac
+[[ $slug =~ $slug_re ]] \
+  || refuse "bad job slug '$slug' (letters, digits, '.', '_', '-'; not starting with '.')"
+case $slug in *..*) refuse "bad job slug '$slug' (no '..')" ;; esac
+
+craft_load_config || exit 5
+read_root=$(craft_real_path "$CRAFT_READ_ROOT") || refuse "cannot resolve CRAFT_READ_ROOT ($CRAFT_READ_ROOT)"
+job=$CRAFT_JOBS/$slug
+
+seen="/"
+srcs=()
+dests=()
+for src in "$@"; do
+  case $src in
+    /*) abs=$src ;;
+    *) abs=$PWD/$src ;;
+  esac
+  { [ -e "$abs" ] || [ -L "$abs" ]; } || refuse "not found: $src"
+  real=$(craft_real_path "$abs") || refuse "cannot resolve: $src"
+  if craft_is_secret_name "$abs" || craft_is_secret_name "$real"; then
+    refuse "secret file name: $src"
+  fi
+  craft_is_under "$real" "$read_root" || refuse "outside CRAFT_READ_ROOT ($CRAFT_READ_ROOT): $src"
+  if stored_secret "$real" "$read_root"; then
+    refuse "secret file name (as stored on disk): $src"
+  fi
+  if [ -d "$real" ]; then
+    hit=$(find "$real" \( -iname '*.env*' -o -iname credentials -o -iname .databrickscfg -o -iname .netrc \) -print -quit 2>/dev/null) \
+      || refuse "cannot check folder: $src"
+    [ -z "$hit" ] || refuse "folder contains a secret file: $hit"
+    hit=$(find "$real" -type l -print -quit 2>/dev/null) || refuse "cannot check folder: $src"
+    [ -z "$hit" ] || refuse "folder contains a symlink: $hit"
+  fi
+  name=$(basename "$abs")
+  case $name in . | ..) name=$(basename "$real") ;; esac
+  case $seen in *"/$name/"*) refuse "two inputs named $name" ;; esac
+  seen="$seen$name/"
+  [ ! -e "$job/in/$name" ] || refuse "already in the job: $job/in/$name"
+  srcs+=("$real")
+  dests+=("$job/in/$name")
+done
+
+job_new=0
+if [ ! -e "$job" ] && [ ! -L "$job" ]; then
+  job_new=1
+elif [ ! -d "$job" ] || [ -L "$job" ]; then
+  refuse "job path exists and is not a folder: $job"
+fi
+done_dests=()
+rollback() {
+  local x
+  for x in ${done_dests[@]+"${done_dests[@]}"}; do rm -rf "$x"; done
+  if [ "$job_new" = 1 ]; then rm -rf "$job"; fi
+}
+mkdir -p "$job/in" "$job/out/_failed" || { rollback; craft_fail 5 "craft-stage: cannot create $job"; }
+i=0
+while [ $i -lt ${#srcs[@]} ]; do
+  s=${srcs[$i]}
+  d=${dests[$i]}
+  # APFS answers this without regard to case or Unicode form.
+  if [ -e "$d" ] || [ -L "$d" ]; then
+    rollback
+    refuse "two inputs named $(basename "$d")"
+  fi
+  done_dests+=("$d")
+  if ! cp -c -R "$s" "$d" 2>/dev/null; then
+    rm -rf "$d"
+    cp -R "$s" "$d" || { rollback; craft_fail 5 "craft-stage: copy failed: $s"; }
+  fi
+  i=$((i + 1))
+done
+printf '%s\n' "$job"

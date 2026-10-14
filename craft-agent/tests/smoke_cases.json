@@ -1,0 +1,40 @@
+{
+  "grid": {
+    "setup": null,
+    "steps": [
+      {
+        "tool": "evaluate_formula",
+        "arguments": {
+          "formula": "=SUM(1,2)"
+        },
+        "expect": "3"
+      }
+    ]
+  },
+  "pdf": {
+    "setup": "pdf2",
+    "steps": [
+      {
+        "tool": "doc_open",
+        "arguments": {
+          "path": "{in}/two-pages.pdf"
+        }
+      },
+      {
+        "tool": "doc_split",
+        "arguments": {
+          "doc": 1,
+          "before": [
+            2
+          ],
+          "out_dir": "{out}"
+        },
+        "expect": "two-pages-part2.pdf",
+        "expect_files": [
+          "out/two-pages-part1.pdf",
+          "out/two-pages-part2.pdf"
+        ]
+      }
+    ]
+  }
+}

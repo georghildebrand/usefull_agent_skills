@@ -1,0 +1,39 @@
+#!/bin/bash
+# craft-app: start an ArtCraft desktop app with the control port that
+# `craft-mcp <tool> --live` connects to.
+#
+#   craft-app <tool>
+#
+# For tools that need a control token (photocraft), creates the token file
+# (64 hex characters, mode 0600) on first use. App output goes to
+# $CRAFT_HOME/logs/<tool>-app.log.
+self=$(readlink -f "$0" 2>/dev/null)
+[ -n "$self" ] || { echo "craft-app: cannot find its own folder (readlink -f failed)" >&2; exit 5; }
+CRAFT_BIN=$(dirname "$self")
+# shellcheck source=lib/craft-common.sh
+. "$CRAFT_BIN/lib/craft-common.sh"
+
+[ $# -eq 1 ] || craft_fail 2 "usage: craft-app <tool>"
+tool=$1
+craft_load_config || exit 5
+craft_read_row "$tool" || craft_fail 2 "craft-app: unknown tool '$tool' (known: $(craft_tool_keys))"
+[ "$TOOL_APP_ARGS" != "-" ] || craft_fail 2 "craft-app: $tool has no live mode"
+
+app="$CRAFT_HOME/bin/$TOOL_APP"
+[ -x "$app" ] || craft_fail 4 "$TOOL_APP not built: run make build-app TOOL=$tool"
+
+if [ "$TOOL_TOKEN" != "-" ]; then
+  token="$CRAFT_HOME/$TOOL_TOKEN"
+  if [ ! -s "$token" ]; then
+    (umask 077 && od -An -tx1 -N32 /dev/urandom | tr -d ' \n' >"$token") \
+      || craft_fail 5 "craft-app: cannot write $token"
+  fi
+  chmod 600 "$token" || craft_fail 5 "craft-app: cannot chmod $token"
+fi
+
+port=$((CRAFT_PORT_BASE + TOOL_OFFSET))
+craft_expand_args "$TOOL_APP_ARGS" "$port"
+mkdir -p "$CRAFT_HOME/logs" "$CRAFT_JOBS" || exit 5
+cd "$CRAFT_JOBS" || exit 5
+nohup "$app" "${CRAFT_ARGS[@]}" >>"$CRAFT_HOME/logs/$tool-app.log" 2>&1 &
+echo "$TOOL_APP started (pid $!), control port 127.0.0.1:$port"
