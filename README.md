@@ -43,20 +43,6 @@ repository as a marketplace; each keeps its state under `~/.claude/<name>/`.
 no hook. It calls a cheap model to name topics; run `classify.py --dry-run`
 first to see the estimated cost.
 
-## Plugins
-
-Plugins add scripts and hooks on top of a skill. Install them from this
-repository as a marketplace; each keeps its state under `~/.claude/<name>/`.
-
-| Plugin | What it does | Use when |
-|---|---|---|
-| [`recent-tracker`](recent-tracker/) | Logs edited files and memory writes from a `PostToolUse` hook, split into design docs / code / memory notes | You want to see what you touched recently across projects |
-| [`usage-stats`](usage-stats/) | Weekly report over your own Claude Code transcripts: time per topic, share of prompts that correct or redirect the assistant, and sessions that produced no file change | You want to know where your Claude Code time goes and which prompts cost you rounds |
-
-`usage-stats` reads only the transcripts Claude Code already writes, so it needs
-no hook. It calls a cheap model to name topics; run `classify.py --dry-run`
-first to see the estimated cost.
-
 ## Contributing
 
 - Keep skills focused on one job.
