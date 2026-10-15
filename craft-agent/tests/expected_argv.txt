@@ -23,3 +23,5 @@ vector headless | vectorcraft-cli mcp --automation-read-root {J} --automation-wr
 vector live | vectorcraft-cli mcp --connect 127.0.0.1:{P}
 word headless | wordcraft-cli mcp --automation-read-root {J} --automation-write-root {J}
 word live | wordcraft-cli mcp --connect 127.0.0.1:{P}
+effect headless | effectcraft-cli mcp --automation-read-root {J} --automation-write-root {J}
+effect live | effectcraft-cli mcp --bridge 127.0.0.1:{P} --automation-read-root {J} --automation-write-root {J}

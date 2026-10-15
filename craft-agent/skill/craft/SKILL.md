@@ -5,7 +5,7 @@ description: Edit, convert or create files with the ArtCraft desktop tools (PDF,
 
 # /craft
 
-One entry point for 11 `craft-<tool>` agents. Each agent controls one ArtCraft
+One entry point for 12 `craft-<tool>` agents. Each agent controls one ArtCraft
 application through its MCP server. An agent can only reach files inside a job
 folder; a hook blocks every other path.
 
@@ -20,6 +20,7 @@ one question. If none fits, say so and stop.
 |---|---|---|
 | `.pdf`: pages, merge, split, comments, forms, passwords, redact | `craft-pdf` | `pdf` |
 | `.docx` `.odt` `.rtf` `.md`: write, edit, convert documents | `craft-word` | `word` |
+| motion graphics, animated or effects video, `.ecproj` | `craft-effect` | `effect` |
 | `.xlsx` `.csv` `.ods`: data, formulas, charts | `craft-sheet` | `grid` |
 | `.psd`, or one image: layers, masks, retouch, text | `craft-photo` | `photo` |
 | raw files, `.dng`, many photos: exposure, color, batch export | `craft-light` | `light` |
@@ -35,6 +36,12 @@ Cases that need a question:
   or exposure and color work goes to `craft-light`.
 - A `.pdf` the user wants to rewrite as a document: `craft-pdf` (edit the PDF) or
   `craft-word` (new document).
+
+Animated video with a voice track (`craft-effect`): the craft tools do not create
+speech. Create the voice files first (for example with a local text-to-speech tool),
+then stage the WAV files together with the other inputs. The agent imports them as
+audio layers. For a video of several scenes, build and render one scene per
+composition and join the scene files afterwards.
 
 ### 2. Check that the tool is built
 

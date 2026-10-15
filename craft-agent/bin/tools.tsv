@@ -10,3 +10,4 @@ photo	photocraft	photocraft-cli	photocraft	7	mcp --automation-read-root {jobs} -
 sound	soundcraft	soundcraft-cli	soundcraft	8	mcp --automation-read-root {jobs} --automation-write-root {jobs}	mcp --connect 127.0.0.1:{port}	--control {port}	-
 vector	vectorcraft	vectorcraft-cli	vectorcraft	9	mcp --automation-read-root {jobs} --automation-write-root {jobs}	mcp --connect 127.0.0.1:{port}	--control {port}	-
 word	wordcraft	wordcraft-cli	wordcraft	10	mcp --automation-read-root {jobs} --automation-write-root {jobs}	mcp --connect 127.0.0.1:{port}	--control {port}	-
+effect	effectcraft	effectcraft-cli	effectcraft	11	mcp --automation-read-root {jobs} --automation-write-root {jobs}	mcp --bridge 127.0.0.1:{port} --automation-read-root {jobs} --automation-write-root {jobs}	--control {port}	-

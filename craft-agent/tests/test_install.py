@@ -39,7 +39,7 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(os.path.realpath(self.link), os.path.realpath(self.home))
         self.assertTrue(os.path.isfile(os.path.join(self.home, "config.env")))
         agents = sorted(os.listdir(os.path.join(self.claude, "agents")))
-        self.assertEqual(len(agents), 11)
+        self.assertEqual(len(agents), 12)
         self.assertTrue(os.path.islink(os.path.join(self.claude, "skills", "craft")))
         for b in ("craft-mcp", "craft-stage", "craft-app", "craft-guard"):
             self.assertTrue(os.path.islink(os.path.join(self.lbin, b)))

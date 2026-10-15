@@ -5,7 +5,7 @@ import unittest
 from helpers import HERE, CraftHome, Listener, no_readlink_dir, write_exe
 
 OFFSETS = {"cad": 0, "design": 1, "fig": 2, "film": 3, "grid": 4, "light": 5,
-           "pdf": 6, "photo": 7, "sound": 8, "vector": 9, "word": 10}
+           "pdf": 6, "photo": 7, "sound": 8, "vector": 9, "word": 10, "effect": 11}
 
 FAKE_CLI = """#!/bin/bash
 { pwd -P; printf '%s\\n' "$(basename "$0")" "$@"; } > "$CRAFT_HOME/argv.out"
@@ -36,9 +36,9 @@ class LauncherTest(unittest.TestCase):
         with open(os.path.join(self.h.home, "argv.out")) as f:
             return f.read().splitlines()
 
-    def test_all_21_command_lines(self):
+    def test_all_23_command_lines(self):
         cases = list(expected_cases())
-        self.assertEqual(len(cases), 21)
+        self.assertEqual(len(cases), 23)
         for tool, mode, expected in cases:
             with self.subTest(tool=tool, mode=mode):
                 self.fake(expected[0])

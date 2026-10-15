@@ -193,3 +193,32 @@ notes = """
 - inspect_document shows the document structure. Use it to check your work without screenshots.
 - In headless mode WordCraft's own read and write roots limit it to the jobs folder.
 """
+
+[tool.effect]
+repo = "effectcraft"
+cli = "effectcraft-cli"
+app = "effectcraft"
+agent = "craft-effect"
+title = "EffectCraft"
+port_offset = 11
+headless = ["mcp", "--automation-read-root", "{jobs}", "--automation-write-root", "{jobs}"]
+live = ["mcp", "--bridge", "127.0.0.1:{port}", "--automation-read-root", "{jobs}", "--automation-write-root", "{jobs}"]
+app_args = ["--control", "{port}"]
+token_file = ""
+description = "Creates motion graphics and visual effects with EffectCraft (After Effects-style): compositions, layers, keyframes, effects, 3D cameras, render to MP4."
+notes = """
+- Projects use the `.ecproj` format. Start from an empty project; create a composition with comp.new.
+- Generic tools: list_commands, describe_command, execute_command; also add_keyframe, add_effect, set_property, render_frame.
+- Render a video with execute_command renderQueue.add {comp, format, output} and renderQueue.render {"wait": true}; write the output into <job>/out.
+- Use render_frame to check single frames before a full render.
+- Scripts are refused while the folder limits are set; use commands instead.
+- EffectCraft's own read and write roots limit it to the jobs folder, in headless and in live mode. Pass absolute paths.
+- Check exact parameters with describe_command and list_effects before you use a command or an effect.
+- Useful commands: layer.addTextAnimator (letter-by-letter reveals), layer.addShapeItem (for example Trim Paths for lines that draw themselves), layer.newCamera with 3D layers (camera moves), sourceText expressions (counters).
+- Effects that worked well: Glow, Gradient Ramp, Fractal Noise, CC Particle Systems II, CC Pixel Polly, Wiggle Paths. There is no crack effect; draw jagged paths instead.
+- Gradient Ramp start and end points are in pixels, not 0 to 1. Set scatter to about 40 against visible banding in the MP4.
+- To keep an orange glow orange: Glow with A and B colours set to the orange, Screen mode, based on alpha, intensity about 4 to 5, radius about 45 to 70.
+- 3D primitive layers cannot take effects. For a glow around them, add a blurred halo layer in Screen mode.
+- Voice or music: import the WAV with file.import, add it as a layer at its start time, and set audio levels to about -1 dB so the AAC encoder does not clip.
+- Render one composition at a time and wait for the render to finish before you start the next one.
+"""

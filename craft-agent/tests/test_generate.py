@@ -29,8 +29,8 @@ class GenerateTest(unittest.TestCase):
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
-    def test_eleven_valid_tools(self):
-        self.assertEqual(len(self.tools), 11)
+    def test_twelve_valid_tools(self):
+        self.assertEqual(len(self.tools), 12)
         gen.validate(self.tools)
 
     def test_duplicate_port_offset_rejected(self):

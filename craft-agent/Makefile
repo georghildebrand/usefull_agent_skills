@@ -3,7 +3,7 @@ SHELL := /bin/bash
 PYTHON ?= python3
 DAYS ?= 30
 TOOL ?=
-ALL_TOOLS := cad design fig film grid light pdf photo sound vector word
+ALL_TOOLS := cad design effect fig film grid light pdf photo sound vector word
 TOOLS = $(if $(filter all,$(TOOL)),$(ALL_TOOLS),$(TOOL))
 
 .PHONY: help check test generate build build-app mark-reviewed smoke install uninstall clean-jobs

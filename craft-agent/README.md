@@ -1,6 +1,6 @@
 # craft-agent
 
-`/craft` plus 11 Claude Code subagents that edit files with the
+`/craft` plus 12 Claude Code subagents that edit files with the
 [ArtCraft](https://getartcraft.com/) desktop applications through their MCP
 servers. ArtCraft is a set of open-source, clean-room reimplementations of
 well-known desktop applications, written in Rust.
@@ -18,6 +18,7 @@ well-known desktop applications, written in Rust.
 | `craft-sound` | SoundCraft | `sound` | Pro Tools |
 | `craft-vector` | VectorCraft | `vector` | Illustrator |
 | `craft-word` | WordCraft | `word` | Word |
+| `craft-effect` | EffectCraft | `effect` | After Effects |
 
 ## How it works
 
