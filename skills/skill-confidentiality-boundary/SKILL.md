@@ -14,6 +14,8 @@ Skills reusable across projects and contexts. **Never embed internal company dat
 **Before writing ANY skill, strip:**
 - Company names, product names (generalize: "example company", "SaaS platform")
 - Ticket IDs, issue numbers (use placeholder: `<TICKET_ID>`)
+- Project keys on their own, without a number (`ACME`, `the ACME board`) — these
+  name an internal project just as a full ticket ID does
 - Employee names, roles, internal teams
 - Internal URLs, workspace IDs, account numbers
 - API keys, tokens, credentials (never, ever)
@@ -100,6 +102,7 @@ At <Company Name>, this saved 3 hours per week on debugging.
 
 - [ ] No company/product names (replace with "example", "my-app", etc.)
 - [ ] No ticket IDs or issue numbers (use `<TICKET_ID>`)
+- [ ] No bare project keys or prefixes (`ACME`, `A C M E` spelled out for a voice track)
 - [ ] No employee names or internal roles mentioned
 - [ ] No real workspace/account/job IDs (use `<ID>`, `<WORKSPACE_URL>`)
 - [ ] No API keys, tokens, or credentials anywhere
@@ -167,6 +170,7 @@ databricks jobs get-run --run-id <RUN_ID> \
 | **Leaving real job IDs in examples** | Replace with `<JOB_ID>` placeholder |
 | **Naming the company** | Use "example company" or remove entirely |
 | **Referencing internal tickets** | Use `<TICKET_ID>` or describe symptom instead |
+| **Leaving the project key without its number** | A search for `[A-Z]{2,6}-[0-9]+` matches `ACME-123` and misses `ACME`. Search for the key itself, in every spelling you used, including spaced-out ones |
 | **Mentioning employee names** | Generalize: "the team", "a developer", remove entirely |
 | **Real workspace URLs** | Use `https://<WORKSPACE_URL>` or `https://workspace.cloud.databricks.com` |
 | **Citing internal metrics** | Use relative terms: "improved performance", "reduced latency" |

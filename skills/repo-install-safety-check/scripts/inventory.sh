@@ -34,7 +34,10 @@ grep -n 'filter=' .gitattributes 2>/dev/null
 git config --local --get core.hooksPath 2>/dev/null | sed 's/^/core.hooksPath = /'
 
 section "Rust: build scripts (run on every cargo build/test/install)"
-f -name build.rs | show
+# A build script is build.rs next to a Cargo.toml, or the file named by `build = "..."`.
+# A build.rs inside src/ is an ordinary module and is not listed.
+{ f -name build.rs | while read -r p; do [ -f "$(dirname "$p")/Cargo.toml" ] && echo "$p"; done
+  g '^[[:space:]]*build[[:space:]]*=[[:space:]]*"' Cargo.toml; } | show
 section "Rust: proc-macro crates (the whole crate runs inside the compiler)"
 g '^[[:space:]]*proc-macro[[:space:]]*=[[:space:]]*true' Cargo.toml | show
 section "Rust: cargo config and toolchain (runner, linker, rustflags, env, aliases)"

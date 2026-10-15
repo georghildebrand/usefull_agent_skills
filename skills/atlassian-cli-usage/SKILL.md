@@ -650,25 +650,22 @@ the only reliable path.
 
 ---
 
-## Jira REST API fallback — attachments and full comment body
+## REST fallback through the CLI — attachments, full comment body, any endpoint
 
-`atlassian-cli` does not expose attachment metadata, truncates comment bodies
-to 50-char preview. Use Jira REST API v3 directly when you need either. Auth via
-`ATLASSIAN_API_TOKEN` sourced from `~/.env.atlassian`.
-
-**Never read `~/.env.atlassian` — source it:**
-
-```bash
-source ~/.env.atlassian
-# provides ATLASSIAN_API_TOKEN, ATLASSIAN_EMAIL, ATLASSIAN_INSTANCE (or set manually)
-```
+The typed commands do not expose attachment metadata and cut comment bodies to
+a 50-char preview. For these, and for any other field the typed commands drop,
+call the REST endpoint **through the CLI**: `atlassian-cli jira api <path>` and
+`atlassian-cli confluence api <path>` use the profile's own credentials. No
+token variable, no `source` of an env file, no `curl`. Paths are relative to the
+profile's site root (Confluence paths carry the `/wiki` prefix). Verified
+with `jira api /rest/api/3/issue/<KEY>` and
+`confluence api /wiki/rest/api/content/<PAGE_ID>?status=draft`.
 
 ### List attachments on an issue
 
 ```bash
-source ~/.env.atlassian
-curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
-  "https://<your-instance>.atlassian.net/rest/api/3/issue/<KEY>?fields=attachment" \
+atlassian-cli --profile <jira-profile> jira api \
+  "/rest/api/3/issue/<KEY>?fields=attachment" \
   | python3 -c "
 import json, sys
 for a in json.load(sys.stdin)['fields'].get('attachment', []):
@@ -678,21 +675,15 @@ for a in json.load(sys.stdin)['fields'].get('attachment', []):
 
 ### Download an attachment
 
-```bash
-source ~/.env.atlassian
-curl -s -L -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
-  "https://<your-instance>.atlassian.net/rest/api/3/attachment/content/<ATTACHMENT_ID>" \
-  -o /tmp/<filename>
-```
-
-`-L` required — Jira returns 302 redirect to CDN URL.
+`/rest/api/3/attachment/content/<ATTACHMENT_ID>` answers with a 302 redirect
+to a CDN URL. Downloading the binary through `jira api` is not verified yet;
+check with `--debug` before relying on it.
 
 ### Read full comment body
 
 ```bash
-source ~/.env.atlassian
-curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
-  "https://<your-instance>.atlassian.net/rest/api/3/issue/<KEY>/comment/<COMMENT_ID>" \
+atlassian-cli --profile <jira-profile> jira api \
+  "/rest/api/3/issue/<KEY>/comment/<COMMENT_ID>" \
   | python3 -c "
 import json, sys
 def text(n):
@@ -708,6 +699,15 @@ print(text(json.load(sys.stdin)['body']))
 
 Comment body is Atlassian Document Format (ADF) — nested JSON AST. Direct string
 access fails; recursive `text()` walk above is correct pattern.
+
+### Confluence: editor draft and full inline comments
+
+```bash
+atlassian-cli --profile <confluence-profile> confluence api \
+  "/wiki/rest/api/content/<PAGE_ID>?status=draft&expand=body.storage,version"
+atlassian-cli --profile <confluence-profile> confluence api \
+  "/wiki/rest/api/content/<PAGE_ID>/child/comment?expand=body.storage,extensions.inlineProperties,extensions.resolution&status=any&limit=200"
+```
 
 ### Comment IDs
 
