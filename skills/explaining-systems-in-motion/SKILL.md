@@ -21,7 +21,7 @@ definitions, deploy repos). One row per hand-over:
 
 | from (zone) | to (zone) | what moves | mechanism | automatic / manual | source file:line |
 |---|---|---|---|---|---|
-| repo X CI (Bitbucket Pipelines) | package registry | wheel 1.4.11 | publish | automatic | `bitbucket-pipelines.yml:88` |
+| repo X CI (Bitbucket Pipelines) | package registry | wheel `<VERSION>` | publish | automatic | `bitbucket-pipelines.yml:88` |
 | result table | production pins | nothing | a person reads it, opens a pull request | manual | deploy repo has no reader |
 
 - A zone is a place people know: "repo X CI", "repo X Databricks jobs", "central deploy
