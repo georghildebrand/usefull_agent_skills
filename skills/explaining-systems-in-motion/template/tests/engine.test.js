@@ -98,3 +98,15 @@ test("play(until) stops at that scene", () => {
   for (let t = 50; t <= 1000; t += 50) { e.step(t); s.tick(t); }
   assert.equal(s.cur, 2); assert.equal(ended, 2); assert.equal(s.playing, false);
 });
+
+test("a scene with dur (from the narration) ends at its first tick + dur, also when its animation ended earlier", () => {
+  const e = createEngine(); e.step(0); let ended = null;
+  const scenes = fakeScenes(e, 2, []); scenes[0].dur = 500; scenes[1].dur = 400;
+  const s = createStory(scenes, e, { onEnd: n => (ended = n) });
+  s.go(0); s.play();
+  const run = t => { e.step(t); s.tick(t); };
+  run(0); run(150); run(450); assert.equal(s.cur, 0);
+  run(500); assert.equal(s.cur, 1);
+  run(800); assert.equal(s.playing, true);   /* the last scene also waits for its spoken line */
+  run(900); assert.equal(s.playing, false); assert.equal(ended, 1);
+});

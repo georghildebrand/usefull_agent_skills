@@ -1,8 +1,9 @@
-/* Overlay: fixed step panel (built from EX.STEPS), caption with progress dots, keys, free mode, click info cards.
-   Needs THREE, scene-data.js, engine.js. */
+/* Overlay: fixed step panel (built from EX.STEPS), caption with progress dots, keys, free mode, click info cards,
+   and in the voice build the spoken line of each scene (voice.js; key M mutes).
+   Needs THREE, scene-data.js, engine.js, voice.js. */
 (function () {
   const EX = self.EX;
-  EX.createUI = function ({ story, rig, H, scenes, camera, dom, setCam }) {
+  EX.createUI = function ({ story, rig, H, scenes, camera, dom, setCam, voice = EX.createVoice() }) {
     const $ = id => document.getElementById(id), dots = $("dots");
     const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -21,7 +22,8 @@
       $("helpText").innerHTML = rig.free
         ? "drag to rotate · scroll to zoom · click a station · double-click flies there · <b>P</b> play again"
         : "<b>space</b> play / pause · <b>→</b> <b>←</b> scenes · <b>R</b> replay · <b>F</b> free mode";
-      $("state").textContent = rig.free ? "free mode" : story.playing ? "playing" : "paused";
+      if (voice.available) $("helpText").innerHTML += " · <b>M</b> voice";
+      $("state").textContent = (rig.free ? "free mode" : story.playing ? "playing" : "paused") + (voice.available ? (voice.muted ? " · voice off" : " · voice on") : "");
     }
     function onScene(n) {
       $("capk").textContent = `${n + 1} / ${scenes.length} · ${scenes[n].title}`; $("capt").textContent = scenes[n].text;
@@ -31,25 +33,33 @@
       steps.forEach(e => { const i = Number(e.dataset.step); e.className = (i === k ? "on" : i < k && i > 0 ? "done" : "") + (e.classList.contains("then") ? " then" : ""); });
       const part = scenes[n].part || "";
       document.querySelectorAll("#steps [data-part]").forEach(e => (e.className = part && e.dataset.part !== part ? "part-off" : ""));
+      if (rig.free) voice.stop(); else voice.scene(n);   /* the run buttons of free mode replay scenes without the voice */
       help();
     }
     /* free mode: the story stops, its camera flights stop (rig.setFree), and every sign the story switched off shows
        again (EX.allSigns). The off flags stay, so the story still has them when it takes over again.
        The step panel belongs to the fly-through: free mode shows its buttons in that place. */
-    function enterFree() { story.pause(); rig.setFree(true); EX.allSigns = true; H.focus([]); H.dim([]); $("free").hidden = false; $("steps").hidden = true; help(); }
+    function enterFree() { voice.stop(); story.pause(); rig.setFree(true); EX.allSigns = true; H.focus([]); H.dim([]); $("free").hidden = false; $("steps").hidden = true; help(); }
     function leaveFree() { rig.setFree(false); EX.allSigns = false; $("free").hidden = true; $("steps").hidden = false; closeCard(); help(); }
     function tour() { leaveFree(); setCam(true); story.go(0); story.play(); help(); }
+    /* sound may play only after the viewer pressed a key or clicked (browser autoplay rules) */
+    addEventListener("pointerdown", () => voice.unlock(), true);
     addEventListener("keydown", e => {
       const k = e.key.toLowerCase();
+      voice.unlock();
       if (e.key === " ") {
         e.preventDefault(); if (rig.free) return;
-        if (story.playing) story.pause(); else if (story.cur === scenes.length - 1) tour(); else story.play();
+        if (story.playing) { story.pause(); voice.stop(); }
+        else if (story.cur === scenes.length - 1) tour();
+        else if (voice.on) { story.replay(); story.play(); }   /* with sound the scene starts again, so picture and line run together */
+        else story.play();
         help();
       } else if (e.key === "ArrowRight") { leaveFree(); setCam(true); story.next(); }
       else if (e.key === "ArrowLeft") { leaveFree(); setCam(true); story.prev(); }
       else if (k === "r") { leaveFree(); setCam(true); story.replay(); }
       else if (k === "f") enterFree();
       else if (k === "p") tour();
+      else if (k === "m" && voice.available) { voice.toggle(rig.free); help(); }
       else if (e.key === "Escape") closeCard();
     });
     /* the run buttons replay scenes without the camera (setCam false), so the viewer keeps the view they chose */

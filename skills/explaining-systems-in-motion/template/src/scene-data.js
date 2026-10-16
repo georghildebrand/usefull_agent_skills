@@ -54,21 +54,24 @@
 
   /* pose: orbit camera at the end of the scene (target x, y, z; distance r; angles theta around y and phi from the top).
      Every playback pose shows the whole board from above at an angle; close views are for free mode only.
-     Subtitles: why the step exists first, then what happens; at most 34 words. */
+     Subtitles: why the step exists first, then what happens; at most 34 words.
+     anim: how long the scene's animation runs, in ms (record mode logs the measured value). The video and the voice
+     build give each scene at least anim + 600 ms. say (optional): the spoken form of the subtitle, when the
+     subtitle has words a text-to-speech voice reads badly (short capital names, ids, version numbers). */
   const SCENES = [
-    { key: "receive", title: "Receive", hold: 1800,
+    { key: "receive", title: "Receive", hold: 1800, anim: 4600,
       text: "The next stations must know which parcel they hold. So the receive station takes the parcel from the start of the track and puts a label on it.",
       start: { x: 0, y: 0, z: 2, r: 46, theta: -0.5, phi: 1.2 }, pose: { x: -1.9, y: 0, z: 0.6, r: 27, theta: 0, phi: 0.72 } },
-    { key: "check", title: "Check",
+    { key: "check", title: "Check", anim: 4700,
       text: "A broken parcel must not leave the house. The check station runs 12 checks; each lamp is one check. In this run all 12 pass.",
       pose: { x: -1.9, y: 0, z: 0.6, r: 27, theta: 0, phi: 0.72 } },
-    { key: "green", title: "Green: ship", part: "green",
+    { key: "green", title: "Green: ship", anim: 5000, part: "green",
       text: "Only a checked parcel may leave. The signal turns green, the cart takes the parcel to the ship station, and the board lists it as ready.",
       pose: { x: -1.9, y: 0, z: 0.6, r: 27, theta: 0, phi: 0.72 } },
-    { key: "red", title: "Red run (example)", part: "red",
+    { key: "red", title: "Red run (example)", anim: 6500, part: "red",
       text: "An invented example of a failed check: one lamp turns red, the signal turns red, and the cart goes to the reject bin. Nothing is shipped.",
       pose: { x: -1.9, y: 0, z: 0.8, r: 27, theta: 0, phi: 0.72 } },
-    { key: "then", title: "Then: the courier", hold: 3000,
+    { key: "then", title: "Then: the courier", anim: 3500, hold: 3000,
       text: "The track ends at the ship station. A courier collects the shipped parcels by hand once a day; nothing on the table sends them.",
       pose: { x: -1.6, y: 0, z: 0.4, r: 29, theta: 0.12, phi: 0.8 } },
   ];

@@ -1,4 +1,9 @@
-# build output, stills and audit pages are made locally
+# build output, stills, audit pages, video frames, voice and video files are made locally
 explainer.html
+explainer-voice.html
 shots/
 .audit-*.html
+out/
+frames/
+*.wav
+*.mp4

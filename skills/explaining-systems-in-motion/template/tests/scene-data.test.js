@@ -33,6 +33,10 @@ test("the red run is marked as an example in its title and subtitle", () => {
   assert.match(red.title, /example/i); assert.match(red.text, /example/i);
 });
 
+test("every scene has its animation length (anim, ms) for the video and the voice build", () => {
+  for (const s of SCENES) assert.ok(Number.isFinite(s.anim) && s.anim > 0, s.key);
+});
+
 test("every station has a click card", () => {
   for (const s of LAYOUT.stations) assert.ok(LAYOUT.info[s.key], s.key);
 });
