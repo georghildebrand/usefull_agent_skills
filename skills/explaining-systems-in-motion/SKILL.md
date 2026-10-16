@@ -11,8 +11,10 @@ After the animation, a newcomer must be able to say what starts the process, whe
 step runs, who or what connects the parts, and what reaches the end user. Close-up
 camera work, a missing map and invented hand-overs each break that.
 
-For a 3D page, start from `template/` in this folder (section 4). For 2D SVG stations use
-`building-interactive-presentations`; for a narrated MP4 see `narrated-explainer-video`.
+For a 3D page, start from `template/` in this folder (section 4); it can also make an MP4
+and a page with voice, but only when asked. For 2D SVG stations use
+`building-interactive-presentations`. Use `narrated-explainer-video` only for a narrated
+MP4 that is not built from this 3D template (for example a Remotion video of a result).
 
 ## 1. Connection table first
 
@@ -81,6 +83,12 @@ The template already has the parts that hand-built pages miss:
 
 Check every scene with `bash tools/shoot.sh` at 1920x1080 and at 1280x720, and look at
 each image.
+
+**Video and voice, only when the user asks.** Do not make them by default. An MP4 comes
+from `bash tools/render.sh`; a single page with spoken lines comes from
+`python3 build.py --voice`. The voice is made by Piper on the local machine, so no text
+leaves it. Look at each `out/check/scene-NN.png` (last frame of each scene) before you
+hand the video over. The commands are in the template's `README.md`.
 
 ## Common mistakes
 
