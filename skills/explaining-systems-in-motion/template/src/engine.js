@@ -74,7 +74,8 @@
       next() { return go(cur + 1); },
       prev() { return go(cur - 1); },
       replay() { return go(cur); },
-      play(u) { until = u === undefined ? scenes.length - 1 : Math.min(u, scenes.length - 1); playing = true; holdUntil = null; },
+      /* t0 starts again at the next tick: after a long pause the scene still holds for its full dur, not 0 ms */
+      play(u) { until = u === undefined ? scenes.length - 1 : Math.min(u, scenes.length - 1); playing = true; holdUntil = null; t0 = null; },
       pause() { playing = false; holdUntil = null; },
       /* call once per frame after engine.step(now) */
       tick(now) {

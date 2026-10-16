@@ -5,7 +5,8 @@
 # Usage: bash tools/render.sh
 # Env: W=1920 H=1080 FPS=30   video size and frame rate
 #      GL=swiftshader|metal   software WebGL (default, same result on every machine) or the GPU (about 5x faster)
-#      VOICE=new              make the voice again (default: reuse out/audio when it was made for the same FPS)
+#      VOICE=new              make the voice again (default: reuse out/audio when it was made for the same FPS and
+#                             the same lines; new lines, from changed subtitles or LINES=, make it again)
 #      LINES=<file>           narrate your own lines (one per scene) instead of the subtitles in src/scene-data.js
 #      SILENT=1               no voice: each scene lasts its anim + hold
 #      PIPER, PIPER_VOICE     see tools/narrate.sh
@@ -17,10 +18,16 @@ W="${W:-1920}"; H="${H:-1080}"; FPS="${FPS:-30}"
 mkdir -p out/audio
 args=()
 if [ -z "${SILENT:-}" ]; then
+  # the lines to speak now; the voice in out/audio was made from out/audio/lines.txt
+  if [ -n "${LINES:-}" ]; then cp "$LINES" out/audio/lines.new; else node tools/lines.js > out/audio/lines.new; fi
   same_fps=$(python3 -c "import json,sys;print(int(json.load(open(sys.argv[1]))['fps'])==int(sys.argv[2]))" out/audio/durations.json "$FPS" 2>/dev/null || echo False)
-  if [ "${VOICE:-}" = new ] || [ "$same_fps" != True ]; then
-    if [ -n "${LINES:-}" ]; then cp "$LINES" out/audio/lines.txt; else node tools/lines.js > out/audio/lines.txt; fi
-    FPS="$FPS" MIN_S="$(node tools/lines.js --min)" bash tools/narrate.sh out/audio/lines.txt out/audio
+  same_lines=False; cmp -s out/audio/lines.new out/audio/lines.txt && same_lines=True
+  if [ "${VOICE:-}" = new ] || [ "$same_fps" != True ] || [ "$same_lines" != True ]; then
+    [ "$same_lines" = True ] || [ ! -f out/audio/lines.txt ] || echo "the lines changed since the last voice: making the voice again"
+    FPS="$FPS" MIN_S="$(node tools/lines.js --min)" bash tools/narrate.sh out/audio/lines.new out/audio
+    mv out/audio/lines.new out/audio/lines.txt   # only after a full voice, so a failed run never looks up to date
+  else
+    rm -f out/audio/lines.new; echo "reusing the voice in out/audio (same lines, $FPS fps); VOICE=new makes it again"
   fi
   node tools/timing.js out/audio/durations.json
   args=(--timing out/audio/durations.json --audio out/audio/narration.wav)

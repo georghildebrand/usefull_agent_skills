@@ -36,17 +36,19 @@ The voice is made with [Piper](https://github.com/OHF-Voice/piper1-gpl) on your 
 
 ```bash
 uv tool install piper-tts                                   # once; or: pipx install piper-tts
-python3 -m piper.download_voices en_US-ryan-high --download-dir ~/piper-voices   # with the Python of the Piper install
+uvx --from piper-tts python -m piper.download_voices en_US-ryan-high --download-dir ~/piper-voices
+#   or download en_US-ryan-high.onnx and en_US-ryan-high.onnx.json into one folder from
+#   https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/<file name>
 export PIPER_VOICE=~/piper-voices/en_US-ryan-high.onnx      # PIPER=<command> when piper is not on PATH
 
 bash tools/render.sh            # voice -> out/audio, frames -> out/frames, video -> out/explainer.mp4
 W=1280 H=720 GL=metal bash tools/render.sh   # smaller, and with the GPU on macOS: faster
 SILENT=1 bash tools/render.sh   # no Piper: a video without sound, each scene anim + hold long
-python3 build.py --voice        # explainer-voice.html: the single file with the spoken lines (Opus, about 25 KB per 10 s)
+python3 build.py --voice        # explainer-voice.html: the single file with the spoken lines (Opus in base64, about 40 KB per 10 s)
 ```
 
 - **Video.** `tools/record.py` opens `index.html?record` in headless Chrome. The frame number is the clock (frame n is at n × 1000 / fps ms), so a slow frame never skips a tween. The page draws the title, step panel and caption into each frame, because ffmpeg often has no text filter. Each scene lasts as long as its spoken line (`out/audio/durations.json`), at least `anim` + 600 ms. When the line is longer than the animation, the camera turns slowly, so the picture is never still for more than about 2 s. Look at `out/check/scene-NN.png` (last frame of each scene) before you watch the video. Check for still stretches: `ffmpeg -i out/explainer.mp4 -vf "scale=480:-1,freezedetect=n=0.0005:d=2" -map 0:v -f null - 2>&1 | grep freeze` (no output is good).
 - **Time.** 1280x720 with software WebGL: about 0.1 s per frame, so a 45 s video takes about 2.5 minutes. 1920x1080 needs about twice the time per frame. `GL=metal` (the GPU on macOS) is about 5 times faster.
 - **`anim`** in each scene is the length of its animation in ms. Record mode prints the measured value per scene; raise `anim` when you make a scene longer. A recording stops with an error when a scene still animates at its end.
 - **Voice in the page.** The line of a scene plays when the scene starts and stops at the next scene and in free mode. Browsers play sound only after a key press or click, so space starts the current scene again, together with its line. **M** turns the voice off and on. Without `--voice` the build does not change.
-- Make the voice once (`VOICE=new bash tools/render.sh` makes it again). Piper does not give exactly the same length twice, so a new voice needs new frames.
+- Make the voice once. `tools/render.sh` reuses `out/audio` while the lines and the fps stay the same; changed subtitles, `say` fields or `LINES=` make the voice again, and so does `VOICE=new`. Piper does not give exactly the same length twice, so a new voice needs new frames.

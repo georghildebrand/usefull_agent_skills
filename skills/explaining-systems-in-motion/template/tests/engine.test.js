@@ -110,3 +110,16 @@ test("a scene with dur (from the narration) ends at its first tick + dur, also w
   run(800); assert.equal(s.playing, true);   /* the last scene also waits for its spoken line */
   run(900); assert.equal(s.playing, false); assert.equal(ended, 1);
 });
+
+test("after a long pause, play holds the scene for its full dur again instead of jumping on", () => {
+  const e = createEngine(); e.step(0);
+  const scenes = fakeScenes(e, 3, []); scenes[1].dur = 500;
+  const s = createStory(scenes, e);
+  s.go(1);
+  const run = t => { e.step(t); s.tick(t); };
+  run(0); run(200); assert.equal(s.cur, 1);   /* paused: the story stays */
+  run(10000); assert.equal(s.cur, 1);
+  s.play();
+  run(10050); run(10400); assert.equal(s.cur, 1);   /* t0 is the first tick after play, not the scene start */
+  run(10550); assert.equal(s.cur, 2);
+});

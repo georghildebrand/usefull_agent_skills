@@ -22,8 +22,9 @@
       /* a scene starts: stop the old line, play the new one */
       scene(n) { stop(); cur = n; if (this.on) start(n); },
       stop,
-      /* M: mute stops the line; unmute plays the current scene's line from its start */
-      toggle(free) { muted = !muted; if (muted) stop(); else if (!free && cur >= 0 && this.on) start(cur); return muted; },
+      /* M: mute stops the line; unmute plays the current scene's line from its start, but only while the story
+         plays (playing false: paused, ended or free mode), so the line never runs over a picture that stands still */
+      toggle(playing) { muted = !muted; if (muted) stop(); else if (playing && cur >= 0 && this.on) start(cur); return muted; },
     };
   };
 })();

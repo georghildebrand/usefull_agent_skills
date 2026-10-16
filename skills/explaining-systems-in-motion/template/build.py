@@ -19,7 +19,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent
 LIMIT = 1_000_000  # bytes; three.min.js alone is about 0.6 MB
-VOICE_LIMIT = 4_000_000  # bytes; about 25 KB of audio per 10 s of speech
+VOICE_LIMIT = 4_000_000  # bytes; Opus at 24 kb/s in base64 is about 40 KB per 10 s of speech
 MAIN = '<script src="src/main.js"></script>'
 
 

@@ -59,7 +59,7 @@
       else if (k === "r") { leaveFree(); setCam(true); story.replay(); }
       else if (k === "f") enterFree();
       else if (k === "p") tour();
-      else if (k === "m" && voice.available) { voice.toggle(rig.free); help(); }
+      else if (k === "m" && voice.available) { voice.toggle(!rig.free && story.playing); help(); }
       else if (e.key === "Escape") closeCard();
     });
     /* the run buttons replay scenes without the camera (setCam false), so the viewer keeps the view they chose */

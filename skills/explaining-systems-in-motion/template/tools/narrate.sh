@@ -14,32 +14,39 @@
 #        at the end when LEAD + voice + TAIL is shorter, so a short line never cuts an animation
 # Install Piper once (Python 3.9+):
 #   uv tool install piper-tts              (or: pipx install piper-tts)
-#   python3 -m piper.download_voices en_US-ryan-high --download-dir ~/piper-voices
-#     (run it with the Python of the piper install, or download en_US-ryan-high.onnx and .onnx.json from
-#      https://huggingface.co/rhasspy/piper-voices, folder en/en_US/ryan/high)
+#   uvx --from piper-tts python -m piper.download_voices en_US-ryan-high --download-dir ~/piper-voices
+#     or download both files of the voice directly, into the same folder:
+#     https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx
+#     https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx.json
 #   export PIPER_VOICE=~/piper-voices/en_US-ryan-high.onnx
 # Piper is not exactly repeatable (the same line differs by up to 0.1 s), so make the voice once and record from
 # that durations.json; never make the voice again after the frames are recorded.
 set -euo pipefail
-if [ $# -ne 2 ]; then sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 2; fi
+if [ $# -ne 2 ]; then sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 2; fi
 src="$1"; out="$2"
 FPS="${FPS:-30}"; LEAD="${LEAD:-0.4}"; TAIL="${TAIL:-0.9}"; LENGTH_SCALE="${LENGTH_SCALE:-1.06}"
 read -r -a PIPER_CMD <<< "${PIPER:-piper}"
-install_help() { echo "$1" >&2; sed -n '15,20p' "$0" | sed 's/^# \{0,1\}/  /' >&2; exit 2; }
+install_help() { echo "error: $1" >&2; sed -n '15,21p' "$0" | sed 's/^# \{0,1\}/  /' >&2; exit 2; }
 command -v "${PIPER_CMD[0]}" >/dev/null || install_help "Piper not found (PIPER=${PIPER:-piper})."
-[ -n "${PIPER_VOICE:-}" ] && [ -f "$PIPER_VOICE" ] || install_help "No voice model: set PIPER_VOICE to an .onnx file."
+"${PIPER_CMD[@]}" --help >/dev/null 2>&1 || install_help "Piper does not start: '${PIPER:-piper} --help' failed."
+[ -n "${PIPER_VOICE:-}" ] && [ -f "$PIPER_VOICE" ] || install_help "No voice model: set PIPER_VOICE to an .onnx file (now: '${PIPER_VOICE:-}')."
+[ -f "$PIPER_VOICE.json" ] || install_help "The voice config $PIPER_VOICE.json is missing: Piper needs it next to the .onnx file."
 command -v ffmpeg >/dev/null || { echo "ffmpeg not found" >&2; exit 2; }
 IFS=, read -r -a MINS <<< "${MIN_S:-}"
 mkdir -p "$out"
-rm -f "$out"/line[0-9]*.wav "$out"/line[0-9]*.txt "$out"/scene[0-9]*.wav "$out"/narration.wav "$out"/durations.json "$out"/concat.txt
+rm -f "$out"/piper.log "$out"/line[0-9]*.wav "$out"/line[0-9]*.txt "$out"/scene[0-9]*.wav "$out"/narration.wav "$out"/durations.json "$out"/concat.txt
 
 i=0
 while IFS= read -r line || [ -n "$line" ]; do
   [ -z "${line// }" ] && continue
   i=$((i + 1)); n=$(printf '%02d' "$i")
   printf '%s\n' "$line" > "$out/line$n.txt"
-  "${PIPER_CMD[@]}" -m "$PIPER_VOICE" --length-scale "$LENGTH_SCALE" --sentence-silence 0.3 \
-        -i "$out/line$n.txt" -f "$out/line$n.wav" >/dev/null 2>&1
+  if ! "${PIPER_CMD[@]}" -m "$PIPER_VOICE" --length-scale "$LENGTH_SCALE" --sentence-silence 0.3 \
+        -i "$out/line$n.txt" -f "$out/line$n.wav" >"$out/piper.log" 2>&1 || [ ! -s "$out/line$n.wav" ]; then
+    echo "error: Piper failed on line $n (${PIPER:-piper}, voice $PIPER_VOICE). Its last output:" >&2
+    tail -n 20 "$out/piper.log" | sed 's/^/  /' >&2
+    exit 1
+  fi
   # pad: LEAD s before, TAIL s after, at least MIN_S in all (adelay and apad are core ffmpeg filters)
   ms=$(python3 -c "print(int(round($LEAD * 1000)))")
   af="adelay=${ms}:all=1,apad=pad_dur=${TAIL}"
