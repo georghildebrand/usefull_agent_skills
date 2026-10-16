@@ -1,0 +1,69 @@
+<!doctype html>
+<!-- Page shell of the explainer: overlay boxes and classic <script> tags (ES modules are blocked on file://).
+     Open it directly from disk; build.py inlines everything into one offline file. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parcel check on the table</title>
+<style>
+  :root { --ink:#f4efe6; --dim:#c9bfae; --accent:#f07c22; --done:#5fb8a8; --panel:rgba(22,18,14,.78); }
+  html,body { margin:0; height:100%; background:#1b1410; overflow:hidden; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); }
+  canvas { display:block; }
+  #title { position:fixed; top:16px; left:20px; font-weight:700; font-size:22px; background:var(--panel); border:1px solid #ffffff1c; border-radius:12px; padding:9px 14px 10px; }
+  #title small { display:block; font-size:12px; letter-spacing:2px; color:#ffb36b; text-transform:uppercase; margin-bottom:4px; }
+  #help { position:fixed; top:16px; right:20px; font-size:12.5px; text-align:right; background:rgba(22,18,14,.96); border:1px solid #ffffff1c; border-radius:12px; padding:8px 12px 9px; }
+  #help b { display:inline-block; min-width:14px; padding:1px 5px; margin:0 2px; border:1px solid #fff4; border-radius:4px; font-weight:600; text-align:center; }
+  #state { display:block; margin-top:6px; color:var(--accent); font-weight:700; letter-spacing:1px; text-transform:uppercase; font-size:11px; }
+  #cap { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); width:min(980px, calc(100% - 32px)); box-sizing:border-box;
+         background:var(--panel); backdrop-filter:blur(6px); border:1px solid #ffffff1c; border-radius:14px; padding:14px 20px 12px; }
+  #capk { font-size:11.5px; letter-spacing:2px; text-transform:uppercase; color:var(--accent); font-weight:700; }
+  #capt { font-size:19px; line-height:1.38; margin-top:4px; }
+  #dots { display:flex; gap:7px; margin-top:10px; }
+  #dots i { width:9px; height:9px; border-radius:50%; background:#ffffff30; cursor:pointer; }
+  #dots i.on { background:var(--accent); } #dots i.done { background:var(--done); }
+  /* fixed step panel: one question, the numbered steps, one "Then" line; the current line is lit */
+  #steps { position:fixed; left:20px; top:104px; width:290px; box-sizing:border-box; background:var(--panel); backdrop-filter:blur(6px);
+           border:1px solid #ffffff1c; border-radius:12px; padding:12px 14px; font-size:14px; line-height:1.36; }
+  #steps h2 { margin:0 0 8px; font-size:12px; letter-spacing:2px; text-transform:uppercase; color:#ffb36b; }
+  #steps p, #steps li { margin:0; padding:5px 8px 5px 28px; border-radius:8px; color:#d8cdbb; position:relative; }
+  #steps ol { list-style:none; margin:4px 0; padding:0; }
+  #steps p::before, #steps li::before { position:absolute; left:8px; top:5px; font-weight:700; color:#ffffff60; }
+  #steps p[data-step="0"]::before { content:"?"; } #steps p.then::before { content:"→"; }
+  #steps li::before { content:attr(data-step) "."; }
+  #steps .on { background:#f07c2233; color:var(--ink); box-shadow:inset 3px 0 0 var(--accent); }
+  #steps .on::before { color:var(--accent); }
+  #steps .part-off { opacity:.42; }
+  #steps .done { color:#a89d8c; } #steps .done::before { content:"✓" !important; color:var(--done); }
+  #free { position:fixed; left:20px; top:104px; display:flex; flex-direction:column; gap:8px; }
+  #free button { background:var(--panel); color:var(--ink); border:1px solid #ffffff30; border-radius:10px; padding:8px 12px; font:600 13px system-ui, sans-serif; cursor:pointer; text-align:left; }
+  #card { position:fixed; right:20px; top:84px; width:min(340px, calc(100% - 40px)); box-sizing:border-box; background:var(--panel); border:1px solid #ffffff26; border-radius:12px; padding:14px 16px; }
+  #cardT { font-weight:700; font-size:15px; margin-right:22px; } #cardB { font-size:14px; line-height:1.4; margin:6px 0 8px; color:#e8dfd0; }
+  #cardL { color:#ffb36b; font-weight:600; font-size:13px; } #cardX { position:absolute; top:8px; right:10px; background:none; border:0; color:var(--dim); font-size:18px; cursor:pointer; }
+  #fallback { position:fixed; inset:0; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; padding:24px; }
+  #debug { position:fixed; left:20px; bottom:150px; font:12px ui-monospace, monospace; background:#000a; padding:4px 8px; border-radius:6px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<div id="title"><small>example explainer</small>Parcel check on the table</div>
+<div id="help"><span id="helpText"></span><span id="state"></span></div>
+<div id="steps"></div>
+<div id="cap"><div id="capk"></div><div id="capt"></div><div id="dots"></div></div>
+<div id="free" hidden><button id="btnGreen">green run</button><button id="btnRed">red run (example)</button><button id="btnTour">play again (P)</button></div>
+<div id="card" hidden><button id="cardX" aria-label="close">×</button><div id="cardT"></div><div id="cardB"></div><a id="cardL" target="_blank" rel="noopener"></a></div>
+<div id="fallback" hidden><h2>Parcel check on the table</h2><p id="fallbackMsg"></p></div>
+<div id="debug" hidden></div>
+<script src="vendor/three.min.js"></script>
+<script src="src/engine.js"></script>
+<script src="src/track.js"></script>
+<script src="src/declutter.js"></script>
+<script src="src/scene-data.js"></script>
+<script src="src/util3d.js"></script>
+<script src="src/world.js"></script>
+<script src="src/camera.js"></script>
+<script src="src/story.js"></script>
+<script src="src/ui.js"></script>
+<script src="src/main.js"></script>
+</body>
+</html>

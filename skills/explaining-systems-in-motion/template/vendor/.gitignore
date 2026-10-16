@@ -1,0 +1,2 @@
+# three.js is downloaded by tools/fetch-three.sh, not kept in the repository
+three.min.js

@@ -1,0 +1,4 @@
+# build output, stills and audit pages are made locally
+explainer.html
+shots/
+.audit-*.html
