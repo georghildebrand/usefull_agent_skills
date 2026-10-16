@@ -76,6 +76,7 @@ The template already has the parts that hand-built pages miss:
 - **One state per scene.** `story.go(n)` resets, replays scenes before n at once and
   animates only n. A scene shows only results that exist at its moment: a red example
   hides or greys the green results, and the next scene restores the green state first.
+  The step panel follows the same run: it ticks only the steps that run went through.
   Free mode shows one consistent state, never two results on the same spot.
 
 Check every scene with `bash tools/shoot.sh` at 1920x1080 and at 1280x720, and look at
