@@ -57,7 +57,14 @@ every session.
    2. `make mark-reviewed TOOL=pdf`
    3. `make build TOOL=pdf` (and `make build-app TOOL=pdf` for live mode)
    4. `make smoke TOOL=pdf`
-5. Start a new Claude Code session, so it loads the agents.
+5. Some ArtCraft repositories ship a `.mcp.json` (FilmCraft and EffectCraft at the
+   time of writing). Claude Code started inside such a folder offers to run those
+   servers, and one of them runs `cargo run`, which builds the code without the
+   review gate. Do not start Claude Code inside the ArtCraft folders. To block
+   these servers by name, add them to `~/.claude/settings.json`:
+   `"disabledMcpjsonServers": ["filmcraft", "filmcraft-headless", "effectcraft", "effectcraft-app"]`
+   and set `"enableAllProjectMcpServers": false`.
+6. Start a new Claude Code session, so it loads the agents.
 
 ## Commands
 
