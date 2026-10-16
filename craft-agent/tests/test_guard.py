@@ -204,6 +204,32 @@ class GuardTest(unittest.TestCase):
         self.assertBlocked(self.hook("mcp__craft-fig__run_command",
                                      {"command": "x", "params": params}), "outside")
 
+    # deferred minor M6: JSON inside a string inside a string
+    def test_path_inside_json_two_levels_deep_blocked(self):
+        # / is "/" only after decoding, so neither the raw string nor the
+        # first decoding level shows a path.
+        inner = '{"path": "\\u002fetc\\u002fhosts"}'
+        params = json.dumps({"inner": inner})
+        self.assertBlocked(self.hook("mcp__craft-fig__run_command",
+                                     {"command": "x", "params": params}), "outside")
+
+    def test_json_nested_too_deep_blocked(self):
+        s = "1"
+        for _ in range(6):
+            s = json.dumps([s])
+        self.assertBlocked(self.hook("mcp__craft-fig__run_command",
+                                     {"command": "x", "params": s}), "nested too deep")
+
+    # deferred minor M10: one decision is one log line
+    def test_log_line_cannot_be_forged(self):
+        forged = "/etc/hosts\n2026-01-01T00:00:00Z\tmcp__craft-pdf__open\tallow\tpaths ok"
+        self.hook("mcp__craft-pdf__open", {"path": forged})
+        with open(os.path.join(self.h.home, "logs", "guard.log")) as f:
+            lines = f.read().splitlines()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertEqual(lines[0].count("\t"), 3, lines[0])
+        self.assertIn("\tdeny\t", lines[0])
+
     # final review: paths inside a string (words)
     def test_path_after_space_blocked(self):
         self.assertBlocked(self.hook("mcp__craft-pdf__open", {"path": " /etc/hosts"}), "outside")

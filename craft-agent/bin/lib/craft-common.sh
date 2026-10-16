@@ -156,6 +156,8 @@ craft_read_row() {
   # craft_read_row <tool>: set the TOOL_* variables from bin/tools.tsv.
   local row
   row=$(craft_tool_row "$1") || return 1
+  # Tab is white space for IFS, so read joins two tabs in a row. No column may be
+  # empty: generate.py writes "-" for an empty value and rejects empty names.
   # shellcheck disable=SC2034
   IFS=$'\t' read -r TOOL_KEY TOOL_REPO TOOL_CLI TOOL_APP TOOL_OFFSET \
     TOOL_HEADLESS TOOL_LIVE TOOL_APP_ARGS TOOL_TOKEN <<EOF

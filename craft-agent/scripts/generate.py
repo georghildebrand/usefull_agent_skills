@@ -59,6 +59,11 @@ def validate(tools):
         for field in ONE_LINE:
             if "\t" in t[field] or "\n" in t[field]:
                 raise ValueError(f"{key}.{field}: must be one line without tabs")
+        # bash reads tools.tsv with IFS=tab, which joins two tabs in a row, so an
+        # empty column would move every later column one place left.
+        for field in ("repo", "cli", "app"):
+            if not t[field]:
+                raise ValueError(f"{key}.{field}: must not be empty")
         if not t["headless"]:
             raise ValueError(f"{key}: headless must not be empty")
         if bool(t["live"]) != bool(t["app_args"]):

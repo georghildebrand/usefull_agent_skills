@@ -7,7 +7,8 @@
 #   - Read receives a path outside $CRAFT_HOME/jobs and $CRAFT_HOME/logs,
 #   - any string or path names a secret file.
 # jq collects every string and object key of tool_input (strings that hold JSON
-# are parsed and their strings collected too), tests the secret file names, and
+# are parsed and their strings collected too, down to MAX_JSON_DEPTH levels; a
+# deeper level blocks the call), tests the secret file names, and
 # hands only path-like strings to the bash checks below:
 #   - whole strings that start with /, ~ or file:, contain /, or are ..,
 #   - words inside a string that start with /, ~ or file: (words are split at
@@ -28,12 +29,27 @@ CRAFT_BIN=$(dirname "$self")
 
 MAX_STRINGS=5000
 MAX_SECONDS=20
+MAX_JSON_DEPTH=4
 tool_name="-"
+
+log_field() {
+  # log_field <text>: sets FIELD to <text> with \, tab, newline and CR written as
+  # \\, \t, \n, \r and other control characters as ?, so that a path from the tool
+  # call cannot add a line or a column to guard.log.
+  FIELD=${1//\\/\\\\}
+  FIELD=${FIELD//$'\t'/\\t}
+  FIELD=${FIELD//$'\n'/\\n}
+  FIELD=${FIELD//$'\r'/\\r}
+  FIELD=${FIELD//[[:cntrl:]]/?}
+}
 
 log_decision() {
   [ -n "${CRAFT_HOME:-}" ] || return 0
+  local name reason
+  log_field "$tool_name"; name=$FIELD
+  log_field "$2"; reason=$FIELD
   mkdir -p "$CRAFT_HOME/logs" 2>/dev/null
-  printf '%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$tool_name" "$1" "$2" \
+  printf '%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$name" "$1" "$reason" \
     >>"$CRAFT_HOME/logs/guard.log" 2>/dev/null
 }
 
@@ -127,8 +143,16 @@ check_path() {
 #   C<count>   more than MAX_STRINGS strings      X<string>  secret file name
 #   P<string>  path-like string                   B<string>  plain name
 #   T<word>    path-like word of the string before (skipped when that path exists)
+#   D          JSON in strings nested more than MAX_JSON_DEPTH levels deep
 read -r -d '' filter <<'JQ'
 def S: .. | (strings, (objects | keys_unsorted[]));
+# Every string and key, also of JSON held in strings, down to $d decoding levels.
+# A level below that which still holds a string, array or object gives {deep: true}.
+def expand($d): S,
+  (.. | strings | (try fromjson catch empty)
+   | if $d > 0 then expand($d - 1)
+     elif type == "string" or type == "array" or type == "object" then {deep: true}
+     else empty end);
 def secret: ascii_downcase | split("/")
   | any(.[]; contains(".env") or . == "credentials" or . == ".databrickscfg" or . == ".netrc");
 def absolute: test("^(/|~|[Ff][Ii][Ll][Ee]:)");
@@ -143,8 +167,10 @@ def words: rest_after_root as $t
      elif absolute then [splits(delim)] | .[1:]
      else [splits(delim)] end)
   | .[] | select(. != "/" and absolute);
-([.tool_input | S] + [.tool_input | .. | strings | (try fromjson catch empty) | S]) as $all
-| if ($all | length) > $max then "C\($all | length)"
+[.tool_input | expand($depth)] as $raw
+| [$raw[] | strings] as $all
+| if any($raw[]; type == "object") then "D"
+  elif ($all | length) > $max then "C\($all | length)"
   else
     [$all | unique[] | {s: ., w: [words]}] as $recs
     | ([$recs[] | (.s, .w[]) | select(secret)] | first) as $sec
@@ -157,7 +183,8 @@ JQ
 strings=$(mktemp) || deny "mktemp failed"
 trap 'rm -f "$strings"' EXIT
 printf '%s' "$input" \
-  | "$JQ" --raw-output0 --argjson max "$MAX_STRINGS" "$filter" --args "${prefixes[@]}" \
+  | "$JQ" --raw-output0 --argjson max "$MAX_STRINGS" --argjson depth "$MAX_JSON_DEPTH" \
+      "$filter" --args "${prefixes[@]}" \
     >"$strings" 2>/dev/null \
   || deny "cannot read tool_input"
 
@@ -168,6 +195,7 @@ while IFS= read -r -d '' rec; do
   s=${rec#?}
   case $rec in
     C*) deny "too many strings to check ($s, at most $MAX_STRINGS)" ;;
+    D*) deny "JSON in strings nested too deep (at most $MAX_JSON_DEPTH levels)" ;;
     X*) deny "secret file name: $s" ;;
     P*) check_path "$s"; skip_words=$path_existed ;;
     B*)

@@ -51,6 +51,15 @@ class GenerateTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             gen.validate(tools)
 
+    def test_empty_tsv_field_rejected(self):
+        # bash reads tools.tsv with IFS=tab, which joins two tabs in a row: an empty
+        # field would move every later column one place left.
+        for field in ("repo", "cli", "app"):
+            tools = copy.deepcopy(self.tools)
+            tools["cad"][field] = ""
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                gen.validate(tools)
+
     def test_live_without_app_args_rejected(self):
         tools = copy.deepcopy(self.tools)
         tools["cad"]["app_args"] = []
