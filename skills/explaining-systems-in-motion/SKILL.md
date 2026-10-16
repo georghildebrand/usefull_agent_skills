@@ -11,8 +11,8 @@ After the animation, a newcomer must be able to say what starts the process, whe
 step runs, who or what connects the parts, and what reaches the end user. Close-up
 camera work, a missing map and invented hand-overs each break that.
 
-Builds on `building-interactive-presentations` (render model, stills) and
-`narrated-explainer-video` (voice, MP4).
+For a 3D page, start from `template/` in this folder (section 4). For 2D SVG stations use
+`building-interactive-presentations`; for a narrated MP4 see `narrated-explainer-video`.
 
 ## 1. Connection table first
 
@@ -62,10 +62,31 @@ stills and the subtitles. It must answer: what starts it, what it tests, what ma
 fail, what reaches the end user, and who connects to whom. Every question it cannot
 answer is a finding.
 
+## 4. Building a 3D page: start from `template/`
+
+Copy `template/` (three.js, offline, runs from `file://`) and replace the example in
+`src/scene-data.js`, `src/world.js` and `src/story.js`. Its `README.md` has the commands.
+The template already has the parts that hand-built pages miss:
+
+- **Signs that cannot overlap.** Every label is a sign made with `util3d.js`; the sign pass
+  hides the lower-priority sign of any overlapping pair each frame. Mark the scene's
+  focused signs with `H.focus([...])` so they win. Do not place labels by hand.
+- **A sign audit.** Run `bash tools/audit.sh` on every scene; it lists signs that are
+  hidden, cut at the edge or overlapping. Fix every sign the scene needs that it reports.
+- **One state per scene.** `story.go(n)` resets, replays scenes before n at once and
+  animates only n. A scene shows only results that exist at its moment: a red example
+  hides or greys the green results, and the next scene restores the green state first.
+  Free mode shows one consistent state, never two results on the same spot.
+
+Check every scene with `bash tools/shoot.sh` at 1920x1080 and at 1280x720, and look at
+each image.
+
 ## Common mistakes
 
 | Mistake | Fix |
 |---|---|
+| Labels placed by hand at fixed 3D points | Signs from `util3d.js` with focus priority; run the audit |
+| Red example scene still shows the green parcel, total or badge | Hide or grey the other run's results in that scene |
 | Camera follows the train or pushes in on a station | Wide shot, light the active part |
 | Process explained only in subtitles that vanish | Fixed step panel with the current step |
 | Result record travels over the bridge to the customers | Check who reads it; usually a person and a pull request |
