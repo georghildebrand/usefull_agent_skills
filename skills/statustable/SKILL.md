@@ -34,6 +34,12 @@ No second table, no separate list of decisions, no "not urgent" section.
 5. **Next step / who:** `me` (the agent can do it now without approval), `**you**`
    (the user decides or approves), a role (`reviewer`), or `—`.
 6. **Open decisions are rows in their workstream**, with `**you**`.
+7. **Every pull request and pipeline is a link** to its original page, in every
+   cell where it appears: `[PR 12](<url>)`, `[build 88](<url>)`. Take the URL from
+   the tool output or ask the host for it (`gh pr view 12 --json url`,
+   `gh run view 88 --json url`, the `url` field of a Bitbucket or Jira API answer).
+   Never build a URL from a guessed host, workspace or repo name. If no URL can be
+   found, write `PR 12 (no link: URL not found)`.
 
 Write in the user's language; keep the markers and column names.
 
@@ -43,8 +49,8 @@ Status as of 2026-03-04 14:05 UTC. Checked just now: CI, pull requests.
 
 | Workstream | Topic | State | Next step / who |
 |---|---|---|---|
-| **Library `order-checks`** (PR 12) | Code, tests | ✅ 12 checks, 40 tests pass | — |
-| | CI | ✅ branch build 88 green · ⏸ PR build 89 at manual step (a few cents) | start it: **you** |
+| **Library `order-checks`** ([PR 12](https://git.example.com/acme/order-checks/pull/12)) | Code, tests | ✅ 12 checks, 40 tests pass | — |
+| | CI | ✅ branch [build 88](https://ci.example.com/acme/order-checks/runs/88) green · ⏸ PR [build 89](https://ci.example.com/acme/order-checks/runs/89) at manual step (a few cents) | start it: **you** |
 | | Branch vs main | 🟡 2 commits behind (docs only) | rebase: me, after your OK |
 | | Decision: WARN counts as amber? | ⏳ open | **you** |
 | **Experiments** | E7 choose early, check late | ✅ held on 3 of 3 datasets | — |
@@ -62,3 +68,5 @@ Waiting for you: 1. start PR build step 2. WARN as amber 3. go for E8 4. approve
 | A pipeline state from an hour ago | Query it again, or write the time of the last check |
 | "I can check it if you want" | Check it before writing |
 | Done items left out | Keep them with ✅ |
+| "PR 12" or "build 88" as plain text | Link it to the original page |
+| A link built from a guessed URL pattern | Take the URL from the tool output, or write `no link: URL not found` |
