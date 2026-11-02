@@ -39,12 +39,23 @@ These are not extra levels. They sit alongside the four.
 | View | Scope | What it shows |
 |---|---|---|
 | System Landscape | an enterprise | many systems together; a System Context without one system in focus |
-| Dynamic | enterprise, system, or container | how existing elements collaborate at runtime, with **numbered** interactions |
-| Deployment | one software system | containers mapped onto deployment nodes (physical, VM, container, execution environment); nodes can nest |
+| Dynamic | one feature, story or use case | how existing elements of the static model collaborate at runtime, with **numbered** interactions; you choose whether the participants are software systems, containers or components |
+| Deployment | one or more software systems in **one** deployment environment (production, staging, development) | software system instances and container instances placed on deployment nodes (physical, VM, container, execution environment), plus infrastructure nodes such as load balancers; nodes can nest |
 | Interfaces/contracts | a boundary | schemas, auth flows, API and tool catalogs |
 
+A dynamic view can be drawn in collaboration style (free layout, numbered
+lines) or in sequence style. Both show the same information. Modelling tools
+also give a dynamic view a technical scope, and the scope decides which
+elements are allowed:
+
+- whole landscape: people and software systems only;
+- one software system: people, other software systems, and the containers;
+- one container: people, other software systems, other containers, and
+  components.
+
 A Container diagram deliberately says nothing about deployment, clustering,
-replication or failover. That is what the deployment view is for.
+replication or failover. That is what the deployment view is for. Draw one
+deployment diagram per environment.
 
 ## When to Use
 
@@ -69,9 +80,74 @@ architecture/
 
 Rules that make this work:
 
-- **One `.puml` per diagram**, named for its level:
-  `C4_Level1_Context.puml`, `C4_Level2_Container.puml`,
-  `C4_Level3_Component.puml`.
+- **One `.puml` per diagram, and every file name carries the C4 level**:
+  `C4_Level<N>_<View>[_<Subject>].puml`. A reader can then tell the zoom level
+  from the file list alone.
+  - `<N>` is the level of the diagram's **scope**: the question it answers
+    and the element it zooms into. It is not the level of the most detailed
+    element that happens to be drawn.
+    - `1`: one software system as a closed box, with the people and other
+      systems around it.
+    - `2`: one software system opened. Which containers it has, and which
+      container talks to which person or external system.
+    - `3`: exactly **one container** opened. The components inside it.
+  - **A Level 3 file has exactly one container that is opened to show
+    components.** Other containers, people and systems may appear only as
+    closed boxes that connect directly to those components. A diagram that
+    opens more than one container, or opens some containers and leaves others
+    closed, mixes two levels. Treat that as a defect. Fix it in one of two
+    ways:
+    - Draw it at Level 2. Every container is closed. Inner detail that the
+      reader still needs goes into the container's technology or description,
+      for example `"Node.js, shared client library"`.
+    - Split it. One Level 3 diagram for each container you need to open.
+  - Where this rule comes from: C4 defines the component diagram scope as "a
+    single container", and lists mixed levels of abstraction as a typical
+    problem of diagrams. No C4 page forbids a second opened container in so
+    many words, and modelling tools do not block it. So a team may decide to
+    allow it, but only as a documented extension: write it in the conventions
+    file so that everybody reads such diagrams the same way. Without that
+    entry, the defect rule applies.
+  - Test: the question "which containers call which external system" is a
+    Level 2 question. It stays Level 2 even when every container embeds the
+    same library. Detail that the Level 2 reader does not need moves down to
+    a Level 3 diagram. It does not get drawn into the Level 2 picture.
+  - `<View>` is the diagram type: `Landscape`, `Context`, `Container`,
+    `Component`, `Dynamic` (collaboration style), `Sequence` (dynamic view in
+    sequence style) or `Deployment`.
+  - `<Subject>` is optional when the directory already names the subject.
+    Use `_` between words, no spaces.
+  - **Supplementary views get a level from their scope.** C4 numbers only the
+    four core diagrams. For a dynamic or deployment view, take the level of
+    the scope it zooms into:
+    - Dynamic or sequence view whose participants are people and software
+      systems only: `Level1`.
+    - Scoped to one software system, with its containers as participants:
+      `Level2`.
+    - Scoped to one container, with that container's components as
+      participants: `Level3`.
+    - A sequence with components of several containers as participants has
+      no single scope. Use containers as participants (`Level2`), or draw one
+      sequence per container (`Level3`).
+    - Deployment view: it places software system instances and container
+      instances on nodes, never components. With container instances it is
+      `Level2`; with software system instances only it is `Level1`.
+
+  | Diagram | File name |
+  |---|---|
+  | System context | `C4_Level1_Context.puml` |
+  | Containers of the system | `C4_Level2_Container.puml` |
+  | Which containers embed a shared library and which external systems they call (library named in each container's technology) | `C4_Level2_Container_Client_Library_Usage.puml` |
+  | Components of one container | `C4_Level3_Component.puml` |
+  | Usage example: the library drawn as components inside **one** consuming container | `C4_Level3_Component_Service_A.puml` |
+  | One call between components of one container, step by step | `C4_Level3_Sequence_Token_Refresh.puml` |
+  | One feature across the containers of the system | `C4_Level2_Sequence_Checkout.puml` |
+  | Container instances in the production environment | `C4_Level2_Deployment_Production.puml` |
+
+  The type in the file name and the type in the `title` must agree. A file
+  called `..._Component_...` with the title "Container diagram for X" is a
+  defect. The level must agree with the scope in the title: "Component diagram
+  for Service A" names one container, so the file is `Level3`.
 - **Commit both the `.puml` source and the rendered `.svg`.** Reviewers and
   wiki embeds read the SVG; the source is what you diff. SVG over PNG — it is
   text, so the diff is reviewable, and it stays sharp when zoomed. Plain-text
@@ -114,9 +190,40 @@ They are usually not components either: components partition *functionality* at
 runtime, not source-tree structure. A one-to-one mapping sometimes exists (one
 assembly per component in a hexagonal architecture), but do not assume it.
 
-**Shared library or framework → not a container.** Draw it as a component in
-each container that uses it, or use colour to mark which parts of the system are
-bespoke versus provided.
+**Shared library or framework → not a container.** A library is code that runs
+inside a container; it does not run on its own. To document the library itself,
+C4 points to UML. To show where it is used, draw a usage example, and use colour
+to mark which parts of the system are bespoke and which are provided. How to
+show it depends on the level:
+
+- *Level 2.* Keep every consuming container closed. Name the library in each
+  container's technology and description, for example
+  `Container(svc_a, "Service A", "Python, shared client library", "Calls the
+  billing system through the shared client library")`. Optional: give those
+  containers a tag such as `shared-lib`, with a legend entry, so readers see at
+  a glance which containers embed it.
+- *Level 3.* Draw a usage example for **one** consuming container: the library
+  as one or more components inside the opened container, grouped or
+  colour-coded so readers see the code is provided, not bespoke. Add a note
+  that the other consuming containers embed it the same way. Draw a second
+  component diagram only when another container uses the library differently.
+  Do not open two consuming containers in one diagram to show the library in
+  both.
+
+**Software system boundary → decide by ownership.** A software system is
+something one team builds, owns, is responsible for, and can see inside. In many
+cases its boundary is the boundary of one team. When it is not clear whether a
+group of services is one system or two, ask which team owns them and whether
+they share stakeholders and release cadence. Product domains, bounded contexts,
+business capabilities and squads are usually not software systems.
+
+**Private or shared data store → container either way.** A data store is a
+container in C4, even when only one container uses it. Some practitioners move
+a private database down to Level 3 and draw it as a component, to reduce noise
+on Level 2. C4 does not support that: a component runs in the same process
+space as its container, and a database does not. A shared data store is
+especially important on Level 2, because it shows which containers depend on
+the same data.
 
 **External systems stay closed.** If you do not own it and cannot change it,
 draw only its boundary. Never open up an external system's internals — you are
@@ -277,6 +384,9 @@ SHOW_LEGEND()
   and make the description match the arrow direction.
 - No isolated elements. A box with no relationship is a sign the diagram is
   incomplete.
+- A line between two supporting elements is allowed when it helps the reader
+  understand the context. Example: an external email system that sends emails
+  to the customer, on the System Context diagram of the shop.
 
 Link a container or component to its repository so readers can jump to the
 code: `Container(...) [[REPO_SERVICE_A_URL{Open Repository}]]`.
@@ -359,6 +469,13 @@ answers, it is not finished.
 
 **Diagram**
 - [ ] Title states the diagram type and the scope.
+- [ ] File name follows `C4_Level<N>_<View>[_<Subject>]`, also for dynamic,
+      sequence and deployment views. `<N>` is the level of the scope the
+      diagram zooms into, not of its most detailed element. Level and view
+      match the title.
+- [ ] A component diagram opens exactly one container. Other containers appear
+      only as closed boxes. The only exception is an extension that the
+      conventions file documents.
 - [ ] Has a legend, and every colour/shape/line style/arrow head used appears in it.
 - [ ] Sits in the directory that matches its level and audience.
 - [ ] 5–15 elements; never past ~20.
@@ -396,7 +513,9 @@ answers, it is not finished.
 
 | Anti-pattern | Why it fails | Do instead |
 |---|---|---|
-| Shared library as a container | Not deployable; implies a running process | Component inside each consuming container |
+| Shared library as a container | Not deployable; implies a running process | Level 2: name it in each container's technology. Level 3: components inside the one opened container |
+| Components of several containers in one diagram | Mixes Level 2 and Level 3; no single container is in scope, so the reader cannot tell which question the diagram answers | Level 2 diagram with the inner detail in each container's technology or description; one Level 3 diagram per container if the inside matters |
+| Private database drawn as a component | A data store is a container; it does not run in the process space of another container | Container; leave it closed |
 | Managed object store / DB drawn as external system | You own the buckets and schemas; it is part of your architecture | Container |
 | Inventing a "subsystem" or "module" level | Undefined abstraction; readers cannot tell what it is | Use the defined levels; split into more diagrams |
 | Rationale and rejected options on the diagram | Diagrams show outcome, not deliberation | ADR or decision record, linked from the README |
@@ -440,12 +559,58 @@ Raise these when they apply — the failures a checklist will not catch.
   questions, and say no to the rest.
 - **The repo describes intent, not reality.** If most boxes are `<<todo>>`, say
   so at the top of the README. Otherwise the repo reads as a system that exists.
+- **Several teams, several readings of the levels.** Teams draw the line between
+  a software system and a container, or a container and a component, in
+  different places. When diagrams from several teams must fit together, write
+  the classification rules into the conventions file and review new diagrams
+  against them. Do not expect one diagram of the whole organisation to stay
+  consistent without that effort.
 
 ## Sources
 
 - [c4model.com](https://c4model.com/) — Simon Brown. Abstractions, per-level
   scope and audience, notation rules, metamodel, FAQ (the classification cases
-  above), diagramming vs modelling.
+  above), diagramming vs modelling. Pages used for the level and scope rules:
+  - [Container diagram](https://c4model.com/diagrams/container) — scope "A
+    single software system"; deployment goes to "one or more deployment
+    diagrams, one per environment".
+  - [Component diagram](https://c4model.com/diagrams/component) — scope "A
+    single container"; primary elements "Components within the container in
+    scope".
+  - [Dynamic diagram](https://c4model.com/diagrams/dynamic) — scope "A
+    particular feature, story, use case, etc."; elements are your choice.
+  - [Deployment diagram](https://c4model.com/diagrams/deployment) — scope "One
+    or more software systems within a single deployment environment".
+  - [Component](https://c4model.com/abstractions/component),
+    [Container](https://c4model.com/abstractions/container),
+    [Software system](https://c4model.com/abstractions/software-system),
+    [FAQ](https://c4model.com/faq) — what each abstraction is, libraries,
+    ownership. Treating a client and a server as two containers "provides a
+    basis for zooming in to each container separately to show the components
+    inside them".
+  - [Introduction](https://c4model.com/introduction) — lists "Levels of
+    abstraction are mixed." as a typical problem of diagrams.
+  - [Notation](https://c4model.com/diagrams/notation) — every title describes
+    "the diagram type and scope".
+- [Structurizr DSL language reference](https://docs.structurizr.com/dsl/language)
+  — a component view is defined "for the specified container"; the scope of a
+  dynamic view decides which elements it may hold. The Structurizr Java
+  library refuses components on a container view ("Only people, software
+  systems, and containers can be added to a container view."), but accepts
+  components of other containers on a component view. The one-container rule
+  for Level 3 is therefore a C4 rule that reviews must check; tools do not
+  enforce it.
+- [Simon Brown on extending C4](https://stackoverflow.com/questions/66633818/c4-model-in-practice)
+  — on adding to the model: "Just ensure that your "extension" is documented
+  and understood by everybody in your team/organisation."
+- [Structurizr cookbook: Shared components](https://docs.structurizr.com/dsl/cookbook/shared-components)
+  — a shared library as a tagged group of components, with one component view
+  per container.
+- [The C4 Model in Practice](https://jamesblewitt.net/the-c4-model-in-practice/)
+  — James Blewitt, 2023. Practitioner tips: Level 3 opens one container, push
+  detail down a level, decide what a system is by team ownership, teams read the
+  levels differently. Note its tip to draw private databases as Level 3
+  components conflicts with C4; inside a C4 repo, follow C4.
 - [Misuses and Mistakes of the C4 model](https://www.workingsoftware.dev/misuses-and-mistakes-of-the-c4-model/)
 - [The Art of Crafting Architectural Diagrams](https://www.infoq.com/articles/crafting-architectural-diagrams/)
   — Ionut Balosin, InfoQ. General diagramming pitfalls, legend and consistency
