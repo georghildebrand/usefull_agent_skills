@@ -34,6 +34,13 @@ Reusable Claude Code skills collection. Each skill lives in `skills/<name>/SKILL
 | [`setup-voice-mode`](skills/setup-voice-mode/SKILL.md) | Speak-only voice for Claude Code: voicemode MCP server plus a local mlx-audio TTS service, local URLs only (no cloud fallback), trigger-word rule file as a template, setup script, German voice with Qwen3-TTS, pitfalls (first-call model download, `wait_for_response`, sandbox), check and removal | You want Claude to read answers aloud on macOS, want a non-English voice, or need to explain how such a setup works |
 | [`session-readout`](skills/session-readout/SKILL.md) | `/stand` command: Claude writes a short spoken status of the session; a small native macOS window plays it, stops when closed, plays only on headphones, and falls back to the system voice so sound never starts late | You want to hear where a session stands before stepping away, and need sound that can always be stopped |
 
+## MCP servers
+
+Standalone MCP servers. Each one has its own `make install`.
+
+| Server | What it does | Use when |
+|---|---|---|
+| [`local-llm-guard`](local-llm-guard/README.md) | Stdio MCP server. A local Ollama model reads or edits small files with secrets or personal data. Claude Code gets only a filtered answer. | A file is blocked by a secrets hook and you still need help with it |
 
 ## Plugins
 

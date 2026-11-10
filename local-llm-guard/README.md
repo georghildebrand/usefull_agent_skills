@@ -1,0 +1,127 @@
+# local-llm-guard
+
+A stdio MCP server for Claude Code. It hands small files that hold secrets or personal data to a local Ollama model. Claude Code never sees the file. It gets a filtered answer.
+
+The server also edits such files. The local model proposes a change. You review the real diff in a macOS dialog and approve it. Claude Code only gets the outcome and a masked diff.
+
+## Requirements
+
+- macOS (the approval dialog uses `osascript`)
+- [`uv`](https://docs.astral.sh/uv/)
+- Ollama running on the same machine, with the model pulled: `ollama pull qwen2.5:14b`
+- Python dependency `mcp>=2.3` (installed by `uv sync`; it brings `httpx2`)
+
+## Install
+
+Run this in the `local-llm-guard` folder:
+
+```bash
+make install
+```
+
+This runs `uv sync`. Then it registers the server in Claude Code at user scope, with this command:
+
+```bash
+claude mcp add --scope user local-llm-guard -- uv run --directory <this folder> local-llm-guard
+```
+
+Restart Claude Code after the install.
+
+### Settings
+
+Defaults come from environment variables in the registration.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `LOCAL_LLM_GUARD_MODEL` | `qwen2.5:14b` | Ollama model name |
+| `LOCAL_LLM_GUARD_NUM_CTX` | `16384` | Context size in tokens |
+| `LOCAL_LLM_GUARD_TIMEOUT` | `300` | Time limit for one model call, in seconds |
+| `OLLAMA_HOST` | local default | Must point to the loopback interface (this machine). Other hosts are refused. |
+| `LOCAL_LLM_GUARD_AUTO` | not set | `1` tells Claude Code to call the tools directly. Without it, Claude Code asks you first. |
+
+To set a variable, register the server again with `-e`:
+
+```bash
+claude mcp remove --scope user local-llm-guard
+claude mcp add --scope user -e LOCAL_LLM_GUARD_AUTO=1 local-llm-guard -- uv run --directory <this folder> local-llm-guard
+```
+
+## How Claude Code uses it
+
+The server sends instructions to Claude Code. When the `sensitive-canary` hook blocks a read, or you say a file holds customer or personal data, Claude Code:
+
+1. Tells you in one line which file was blocked and asks if it may hand the file to the local model. (With `LOCAL_LLM_GUARD_AUTO=1` it calls the tool directly and tells you afterwards.)
+2. Calls one of the tools below.
+
+A "yes" covers one file only.
+
+## Tools
+
+| Tool | What it does |
+| --- | --- |
+| `local_ask(paths, question)` | Answers a question about up to 5 files. Returns a filtered answer. |
+| `local_task(paths, instruction)` | Runs an instruction on up to 5 files. Returns a filtered answer. |
+| `local_edit(path, instruction)` | Edits one file after you approve the diff. Returns approved or rejected, plus a masked diff. |
+| `local_status()` | Shows the Ollama version, model, `num_ctx`, timeout and installed models. |
+| `local_config(num_ctx, model, timeout_s)` | Changes these values until Claude Code restarts. Claude Code should ask you first. |
+
+## How an edit works
+
+1. The model proposes a list of changes.
+2. The list is checked against the file.
+3. A dialog shows the file name, the full path and the real diff.
+4. Cancel is the default button. If you do not answer in 120 seconds, this counts as Cancel.
+5. The file hash is checked again, to see that the file did not change meanwhile.
+6. A backup is written.
+7. The file is replaced in one atomic write.
+8. Claude Code gets the outcome and a masked diff.
+
+## Limits
+
+- Small text files only. At most 5 files per call. No chunking. If a file does not fit in `num_ctx`, the tool returns an error with the numbers.
+- Files whose name contains `.env` are always refused.
+- Secrets are masked before the model sees the file. If a known secret appears in the answer (also in encoded form), the answer becomes an error.
+- Masking of personal data (e-mail, phone, IBAN, and names found by a second local model call) is best effort. It is not a guarantee.
+- Business numbers stay visible on purpose.
+- "Ask first" is an instruction to Claude Code. It is not a technical lock.
+- `local_config` changes last only until Claude Code restarts.
+- Files that mix CRLF and LF line endings cannot be edited. Files that already contain text like `<SECRET_1>` cannot be edited.
+- A long diff (over 60 lines) opens in TextEdit. The temporary file is deleted after the dialog. The TextEdit window still shows the real values until you close it. macOS may also keep the window content in its saved state.
+- Backups are kept for 30 days in `~/.local/state/local-llm-guard/backups`.
+
+## Measured cost of the context size
+
+Measured on an Apple Silicon Mac with `qwen2.5:14b`, with the prompt filled to about 80% of the context.
+
+| num_ctx | Time | Memory |
+| --- | --- | --- |
+| 16384 | 44.2 s | 11.9 GB (all in GPU memory) |
+| 32768 | 105.3 s | 15.2 GB (all in GPU memory) |
+
+You can repeat the measurement with `make measure`.
+
+## Sandbox notes
+
+A spike inside the `nono` sandbox showed that:
+
+- Ollama on 127.0.0.1:11434 was reachable.
+- The `osascript` dialog worked.
+- The backup folder was writable.
+- A blocked file was readable.
+
+Editor-extension sessions may run without the sandbox. If a path is denied, the tool returns an error that names the path and the sandbox.
+
+## Development
+
+```bash
+make test    # pytest
+make check   # ruff, format check, confidentiality scan
+```
+
+## Uninstall
+
+```bash
+make uninstall
+```
+
+This removes the registration from Claude Code. Backups stay in `~/.local/state/local-llm-guard/backups` until you delete them.
