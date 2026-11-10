@@ -108,8 +108,8 @@ answer.
 4. The program checks each old line against the masked file. Any mismatch: abort.
 5. The program puts the real secret values back into the placeholders and builds the real diff.
    A new line may not contain a placeholder that was not in its old line.
-6. A macOS dialog (via `osascript`) shows the user the full unmasked diff with two buttons,
-   write or cancel. Claude has no way to press the button.
+6. A macOS dialog (via `osascript`) shows the full path of the file in its title and first
+   line, then the full unmasked diff, with two buttons, write or cancel. Claude has no way to press the button.
 7. On approval: compare the file's SHA-256 hash with the hash taken before the dialog. If
    the file changed while the dialog was open, abort. Otherwise write a backup (see
    "Backups" below), then write atomically: a temporary file in the same directory, then
