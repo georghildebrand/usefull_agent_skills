@@ -74,17 +74,17 @@ A "yes" covers one file only.
 5. The file hash is checked again, to see that the file did not change meanwhile.
 6. A backup is written.
 7. The file is replaced in one atomic write.
-8. Claude Code gets the outcome and a masked diff. If the diff has more than 20 changed lines, Claude Code gets only the counts, for example `+25/-25 lines`.
+8. Claude Code gets the outcome and a masked diff. If the diff has more than 20 changed lines (every `+` or `-` line after the first `@@` line counts), Claude Code gets only the counts, for example `+25/-25 lines`.
 
-A change is refused before the dialog when its new text holds invisible characters: Unicode format or control characters other than tab and newline (for example a zero-width space or a right-to-left override). Such characters can make the dialog show something else than what is written.
+A change is refused before the dialog when its new text holds invisible characters: Unicode format or control characters other than tab and newline, and line or paragraph separators (for example a zero-width space or a right-to-left override). Such characters can make the dialog show something else than what is written.
 
 The diff goes into the dialog only when it has at most 60 lines, at most 4000 characters, and no line longer than 200 characters. The dialog cannot scroll, so a bigger diff opens in TextEdit instead. If TextEdit cannot be opened, no dialog is shown and the edit counts as Cancel.
 
 ## Limits
 
 - Small text files only. At most 5 files per call. No chunking. If a file does not fit in `num_ctx`, the tool returns an error with the numbers.
-- The size check counts the exact text sent to the model: the system prompt, the file headers, the file text, and in `local_edit` the line numbers. Each digit counts as one token, all other characters as one token per 3 characters. 1024 tokens stay free for the answer, and the answer may not be longer than that.
-- After the model call, the tool asks Ollama how many prompt tokens it read. If the prompt filled the context, or the answer was cut off, the tool returns `error: input or answer did not fit the context` and no model text.
+- The size check counts the exact text sent to the model: the system prompt, the file headers, the file text, and in `local_edit` the line numbers. One token each: a digit, an ASCII punctuation or symbol character, and every letter of a word that holds a digit (hex, base64, ids). A non-ASCII character counts as many tokens as it has UTF-8 bytes. Other letters and spaces count one token per 3 characters. 1024 tokens stay free for the answer, and the answer may not be longer than that.
+- After the model call, the tool asks Ollama how many prompt tokens it read. If the prompt filled the context, if Ollama read far fewer tokens than expected for a big prompt (Ollama cuts a too-long prompt to about half of `num_ctx` without an error), or if the answer was cut off, the tool returns `error: input or answer did not fit the context` and no model text.
 - `local_ask` and `local_task` refuse an answer that repeats the files: `error: answer repeats the file content`. This happens when the answer holds at least half of the file lines (lines of 8 characters or more) word for word. Files with fewer than 5 such lines are not checked.
 - Files whose name contains `.env` are always refused.
 - Secrets are masked before the model sees the file. The rules cover, among others: keys whose name holds a credential word in any case (`password`, `pass`, `pw`, `pwd`, `passwort`, `kennwort`, `token`, `secret`, `key`, also inside names like `DB_PASS` or `db.pw`), XML elements and attributes with such names, `.netrc` lines, command line flags (`--password v`, `--token v`, and `-p v` after a database command), YAML block values and JSON arrays below such keys, and sentences like `the password is X`. The same rules run again on the answer. Masking too much is accepted; masking too little is not. If a known secret appears in the answer (also in encoded form), the answer becomes an error.

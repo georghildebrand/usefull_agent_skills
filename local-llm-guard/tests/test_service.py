@@ -544,3 +544,34 @@ def test_unmasked_shapes_never_reach_model_or_claude(tmp_path):
     out = service.ask([path], "q", client, Config())
     assert all(val not in m for m in client.messages)
     assert val not in out
+
+
+@pytest.mark.parametrize("count,ok", [(8192 // 2 + 2, False), (6200, True)])
+def test_prompt_cut_by_ollama_refused(tmp_path, count, ok):
+    path = write(tmp_path, "w.txt", "abc " * 4800)
+    client = FakeClient(answer="fine", prompt_eval_count=count)
+    out = service.ask([path], "q", client, Config(num_ctx=8192))
+    assert (out == "error: input or answer did not fit the context") is not ok
+
+
+def test_edit_summary_counts_lines_that_look_like_diff_headers(tmp_path, monkeypatch):
+    _bk(tmp_path, monkeypatch)
+    text = "".join(f"-- note {i}\n" for i in range(40)) + "".join(f"++ add {i}\n" for i in range(3))
+    path = write(tmp_path, "n.sql", text)
+    lines = text.splitlines()
+    ch = [{"line": i + 1, "old": line, "new": ""} for i, line in enumerate(lines[:40])]
+    out = service.edit(path, "x", _edit_client(ch), Config(), lambda d, p, w: False)
+    assert out.endswith("+0/-40 lines")
+    assert "note 1" not in out
+
+
+def test_edit_rejects_line_and_paragraph_separators(tmp_path, monkeypatch):
+    _bk(tmp_path, monkeypatch)
+    path = write(tmp_path, "c.ini", "a = 1\n")
+    for bad in (chr(0x2028), chr(0x2029)):
+        ch = [{"line": 1, "old": "a = 1", "new": "a = 2" + bad + "b = 3"}]
+        called = []
+        approve = lambda d, p, w, called=called: called.append(1)
+        out = service.edit(path, "x", _edit_client(ch), Config(), approve)
+        assert out == "error: change contains invisible control characters"
+        assert not called and Path(path).read_text() == "a = 1\n"

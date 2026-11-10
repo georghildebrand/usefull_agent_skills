@@ -91,9 +91,10 @@ def parse_changes(raw: str) -> list[Change]:
 
 
 def _has_invisible(text: str) -> bool:
-    """Format (Cf) or control (Cc) characters, except tab and newline, can hide text in the dialog."""
+    """Format, control and line/paragraph separator characters (Cf, Cc, Zl, Zp), except tab
+    and newline, can hide or move text in the dialog."""
     return any(
-        unicodedata.category(ch) in ("Cf", "Cc") and ch not in "\t\n"
+        unicodedata.category(ch) in ("Cf", "Cc", "Zl", "Zp") and ch not in "\t\n"
         for ch in text.replace("\r\n", "\n")
     )
 
@@ -159,8 +160,12 @@ def unified_diff(old: str, new: str, path: str) -> str:
 def _diff_for_claude(masked_diff: str, filtered: Callable[[str], str]) -> str:
     """The masked diff if it is small, else only the counts of added and removed lines."""
     lines = masked_diff.splitlines()
-    added = sum(1 for x in lines if x.startswith("+") and not x.startswith("+++"))
-    removed = sum(1 for x in lines if x.startswith("-") and not x.startswith("---"))
+    # Only the two file headers come before the first hunk. After it, a line that starts
+    # with "---" or "+++" is a changed file line (for example a removed "-- note").
+    first_hunk = next((i for i, x in enumerate(lines) if x.startswith("@@")), len(lines))
+    body = [x for x in lines[first_hunk:] if not x.startswith("@@")]
+    added = sum(1 for x in body if x.startswith("+"))
+    removed = sum(1 for x in body if x.startswith("-"))
     if added + removed > MAX_DIFF_LINES_FOR_CLAUDE:
         return (
             f"diff not shown, more than {MAX_DIFF_LINES_FOR_CLAUDE} changed lines: "
@@ -210,8 +215,9 @@ def edit(
     masked = mask_secrets(f.text)
     numbered = "\n".join(f"{n}| {line}" for n, line in enumerate(_split(masked.masked)[0], 1))
     user = f"=== file: {f.path} ===\n{numbered}\n=== end of file ===\n\nTask:\n{instruction}"
-    check_budget(files, _SYSTEM + "\n" + user, cfg.num_ctx)
-    raw = checked_text(client.chat(_SYSTEM, user, CHANGE_SCHEMA), cfg.num_ctx)
+    prompt = _SYSTEM + "\n" + user
+    check_budget(files, prompt, cfg.num_ctx)
+    raw = checked_text(client.chat(_SYSTEM, user, CHANGE_SCHEMA), cfg.num_ctx, prompt)
     changes = parse_changes(raw)
     if not changes:
         return f"no change: the model proposed no changes for {f.path}"
