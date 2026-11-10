@@ -66,3 +66,28 @@ def test_name_finder_failure_fails_closed():
     with pytest.raises(LeakError) as exc:
         filter_output("hello", [], boom)
     assert str(exc.value) == "name check failed"
+
+
+U = "geheimWört" + "chen42"
+
+
+@pytest.mark.parametrize("leak", [base64.b64encode(U.encode()).decode(), U.encode().hex()])
+def test_non_ascii_known_value_encoded_raises(leak):
+    with pytest.raises(LeakError):
+        filter_output(f"value {leak}", [U], NONE)
+
+
+def test_base64_split_across_newline_raises():
+    enc = base64.b64encode(S.encode()).decode()
+    with pytest.raises(LeakError):
+        filter_output(enc[:10] + "\n" + enc[10:], [S], NONE)
+
+
+def test_names_masked_case_insensitive():
+    out = filter_output("hi erika mustermann.", [], lambda t: ["Erika Mustermann"])
+    assert out == "hi <NAME>."
+
+
+def test_business_numbers_unchanged():
+    text = "date 2026-11-10, total 1,299.00, 4500 units"
+    assert filter_output(text, [], NONE) == text

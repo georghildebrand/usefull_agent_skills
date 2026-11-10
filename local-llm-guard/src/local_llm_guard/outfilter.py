@@ -36,14 +36,16 @@ def _decoded_fragments(text: str) -> list[str]:
             if len(part) % 4 == 1:
                 part = part[:-1]  # a single leftover character cannot be decoded
             try:
-                out.append(base64.b64decode(part + "=" * (-len(part) % 4)).decode("latin-1"))
+                raw = base64.b64decode(part + "=" * (-len(part) % 4))
+                out += [raw.decode("latin-1"), raw.decode("utf-8", errors="replace")]
             except (binascii.Error, ValueError):
                 continue
     for m in _HEX_RE.finditer(text):
         frag = m.group()
         frag = frag[: len(frag) - len(frag) % 2]
         try:
-            out.append(bytes.fromhex(frag).decode("latin-1"))
+            raw = bytes.fromhex(frag)
+            out += [raw.decode("latin-1"), raw.decode("utf-8", errors="replace")]
         except ValueError:
             continue
     return out
@@ -54,7 +56,14 @@ def _check_leaks(text: str, secret_values: Iterable[str]) -> None:
     if not known:
         return
     stripped = re.sub(r"\s+", "", text)
-    variants = [text, stripped, text[::-1], stripped[::-1], *_decoded_fragments(text)]
+    variants = [
+        text,
+        stripped,
+        text[::-1],
+        stripped[::-1],
+        *_decoded_fragments(text),
+        *_decoded_fragments(stripped),
+    ]
     if any(v in variant for v in known for variant in variants):
         raise LeakError("known secret found in model output")
 
@@ -76,7 +85,7 @@ def _mask_names(text: str, find_names: NameFinder) -> str:
     try:
         names = sorted({n for n in find_names(text) if n.strip()}, key=len, reverse=True)
         for name in names:
-            text = re.sub(rf"(?<!\w){re.escape(name)}(?!\w)", "<NAME>", text)
+            text = re.sub(rf"(?<!\w){re.escape(name)}(?!\w)", "<NAME>", text, flags=re.IGNORECASE)
     except Exception:  # noqa: BLE001 - fail closed on any finder error
         raise LeakError("name check failed") from None
     return text
