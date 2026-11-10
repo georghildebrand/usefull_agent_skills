@@ -8,9 +8,14 @@ from typing import Protocol
 import httpx2 as httpx
 
 from .config import Config
-from .files import ANSWER_RESERVE
+from .files import ANSWER_RESERVE, typical_tokens
 
 FIT_ERROR = "input or answer did not fit the context"
+# Ollama cuts a too-long prompt to about num_ctx/2 tokens and reports done_reason "stop".
+# A count far below the guess for a big prompt means the prompt was cut. 0.65, not 0.6:
+# a cut prompt with a guess of 0.8 * num_ctx reports about 0.5 * num_ctx = 0.625 * guess.
+# Measured real/guess for normal text with qwen2.5:14b was 0.68 or more.
+CUT_RATIO = 0.65
 
 
 class OllamaError(Exception):
@@ -24,11 +29,18 @@ class ChatResult:
     done_reason: str | None = None  # "length" means the answer was cut
 
 
-def checked_text(result: ChatResult, num_ctx: int) -> str:
-    """Return the text, or raise when the prompt filled the context or the answer was cut."""
+def checked_text(result: ChatResult, num_ctx: int, prompt: str | None = None) -> str:
+    """Return the text, or raise when the prompt did not fit or the answer was cut.
+
+    `prompt` is the exact text sent (system prompt and user message).
+    """
     count = result.prompt_eval_count
     if result.done_reason == "length" or (count is not None and count >= num_ctx - ANSWER_RESERVE):
         raise OllamaError(FIT_ERROR)
+    if prompt is not None and count is not None:
+        guess = typical_tokens(prompt)
+        if guess > num_ctx / 2 and count < CUT_RATIO * guess:
+            raise OllamaError(FIT_ERROR)
     return result.text
 
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import re
+import string
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,10 +23,41 @@ class LoadedFile:
     tokens: int
 
 
+_WORD_RE = re.compile(r"[A-Za-z0-9]+")
+
+
 def estimate_tokens(text: str) -> int:
-    """Upper estimate: models give each digit its own token; other text needs at most 1 per 3."""
-    digits = sum(ch.isdigit() for ch in text)
-    return digits + math.ceil((len(text) - digits) / 3)
+    """Upper estimate of the prompt tokens, so that a file is never cut without an error.
+
+    1 token each: digits, ASCII punctuation and symbols, and every letter of a word that
+    holds a digit (hex, base64, ids). A non-ASCII character counts its UTF-8 bytes, the most
+    a byte-level tokenizer can use. Other letters and spaces: 1 token per 3 characters.
+    """
+    one = 0
+    for ch in text:
+        if ord(ch) > 127:
+            one += len(ch.encode("utf-8", errors="surrogatepass"))
+        elif ch.isdigit() or ch in string.punctuation:
+            one += 1
+    loose = sum(1 for ch in text if ord(ch) < 128 and (ch.isalpha() or ch.isspace()))
+    for word in _WORD_RE.findall(text):
+        if any(ch.isdigit() for ch in word):
+            letters = sum(1 for ch in word if ch.isalpha())
+            one += letters
+            loose -= letters
+    return one + math.ceil(loose / 3)
+
+
+_SPACE_RUN_RE = re.compile(r"[ \t]{2,}")
+_NON_ASCII_RE = re.compile(r"[^\x00-\x7f]")
+
+
+def typical_tokens(text: str) -> int:
+    """A closer guess than estimate_tokens, used only to spot a prompt that Ollama cut.
+
+    Same rules, but a non-ASCII character and a run of spaces or tabs count 1 token each.
+    """
+    return estimate_tokens(_NON_ASCII_RE.sub("!", _SPACE_RUN_RE.sub("!", text)))
 
 
 def _is_env_name(name: str) -> bool:

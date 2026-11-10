@@ -147,3 +147,25 @@ def test_model_max_ctx_for_other_model():
     client = OllamaClient(Config(), transport=httpx.MockTransport(handler))
     assert client.model_max_ctx("gemma3:4b") == 8192
     assert seen["body"]["model"] == "gemma3:4b"
+
+
+def test_checked_text_refuses_prompt_cut_by_ollama():
+    # Ollama cuts a too-long prompt to about num_ctx/2 tokens and still says "stop".
+    from local_llm_guard.files import estimate_tokens
+    from local_llm_guard.ollama import ChatResult, checked_text
+
+    prompt = "abc " * 4915  # estimate about 0.8 * 8192
+    assert 0.79 * 8192 < estimate_tokens(prompt) < 0.81 * 8192
+    with pytest.raises(OllamaError, match="^input or answer did not fit the context$"):
+        checked_text(ChatResult("x", 8192 // 2 + 2, "stop"), 8192, prompt)
+    assert checked_text(ChatResult("ok", 6000, "stop"), 8192, prompt) == "ok"
+    # Small prompts are not checked this way: their count may be far below the estimate.
+    assert checked_text(ChatResult("ok", 10, "stop"), 8192, "abc " * 100) == "ok"
+
+
+def test_typical_estimate_spots_cut_for_cjk_and_code():
+    from local_llm_guard.files import typical_tokens
+
+    cjk = "".join(chr(0x4E00 + i % 2000) for i in range(400))
+    assert typical_tokens(cjk) == 400  # one per non-ASCII character, not per byte
+    assert typical_tokens("x" + " " * 12 + "y") == 2  # an indent run counts once

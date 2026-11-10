@@ -79,7 +79,9 @@ def error_text(exc: Exception) -> str:
 
 def make_name_finder(client: Client, num_ctx: int) -> NameFinder:
     def find(text: str) -> list[str]:
-        raw = checked_text(client.chat(_NAME_SYSTEM, f"Text:\n{text}", _NAME_SCHEMA), num_ctx)
+        user = f"Text:\n{text}"
+        result = client.chat(_NAME_SYSTEM, user, _NAME_SCHEMA)
+        raw = checked_text(result, num_ctx, _NAME_SYSTEM + "\n" + user)
         data = json.loads(raw)
         names = data.get("names") if isinstance(data, dict) else None
         if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
@@ -119,8 +121,9 @@ def _run(paths: list[str], request: str, client: Client, cfg: Config) -> str:
         for f, text in zip(files, masked_parts)
     ]
     user = "\n\n".join(blocks) + f"\n\nTask:\n{request}"
-    check_budget(files, _SYSTEM + "\n" + user, cfg.num_ctx)
-    answer = checked_text(client.chat(_SYSTEM, user), cfg.num_ctx)
+    prompt = _SYSTEM + "\n" + user
+    check_budget(files, prompt, cfg.num_ctx)
+    answer = checked_text(client.chat(_SYSTEM, user), cfg.num_ctx, prompt)
     if repeats_files(answer, masked_parts):
         raise LeakError(REPEAT_ERROR)
     safe = filter_output(answer, mapping.values(), make_name_finder(client, cfg.num_ctx))
