@@ -1,10 +1,11 @@
 .PHONY: install uninstall test check measure
 
 install:
-	@echo "Task 5"
+	uv sync
+	claude mcp add --scope user local-llm-guard -- uv run --directory $(CURDIR) local-llm-guard
 
 uninstall:
-	@echo "Task 5"
+	claude mcp remove --scope user local-llm-guard
 
 test:
 	uv run pytest -q
