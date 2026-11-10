@@ -82,3 +82,29 @@ def test_budget(tmp_path):
     big = LoadedFile(tmp_path / "big.txt", "a" * 60000, 20000)
     with pytest.raises(FileRefused, match=r"big\.txt.*20000.*16384.*raise it with local_config"):
         check_budget([big], "summarize", 16384)
+
+
+@pytest.mark.parametrize("name", [".EN" + "V", ".En" + "v.local", ".en" + "vrc", "prod.en" + "v"])
+def test_env_variants_refused_without_reading(tmp_path, monkeypatch, name):
+    (tmp_path / name).write_text("K=v")
+    monkeypatch.setattr(pathlib.Path, "read_bytes", _no_read)
+    monkeypatch.setattr("builtins.open", _no_read)
+    with pytest.raises(FileRefused, match=r"\.env files are never read"):
+        load_files([str(tmp_path / name)])
+
+
+def test_missing_env_path_gets_env_message(tmp_path):
+    with pytest.raises(FileRefused, match=r"\.env files are never read"):
+        load_files([str(tmp_path / (".en" + "v.local"))])
+
+
+def test_plain_name_allowed(tmp_path):
+    (tmp_path / "notes.txt").write_text("hi")
+    assert load_files([str(tmp_path / "notes.txt")])[0].text == "hi"
+
+
+def test_invalid_utf8_after_ascii_prefix(tmp_path):
+    f = tmp_path / "mixed.txt"
+    f.write_bytes(b"plain ascii text then " + bytes([0xFF]))
+    with pytest.raises(FileRefused, match="not a text file"):
+        load_files([str(f)])

@@ -72,3 +72,22 @@ def test_update_config_model():
     with pytest.raises(ValueError, match="is not a local model"):
         _upd(model="gpt-oss:120b-cloud")
     assert _upd(model="gemma3:4b", timeout_s=10).model == "gemma3:4b"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1.evil.test:11434",
+        "http://localhost@10.0.0.5:11434",
+        "http://0.0.0.0:11434",
+    ],
+)
+def test_check_local_refuses_tricky_hosts(url):
+    with pytest.raises(NotLocal, match="not a loopback address"):
+        check_local(Config(base_url=url), INSTALLED)
+
+
+def test_ollama_host_without_scheme_is_loopback():
+    cfg = config_from_env({"OLLAMA_HOST": "127.0.0.1:11434"})
+    assert cfg.base_url == "http://127.0.0.1:11434"
+    check_local(cfg, INSTALLED)

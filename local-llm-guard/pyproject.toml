@@ -3,7 +3,7 @@ name = "local-llm-guard"
 version = "0.1.0"
 description = "Stdio MCP server that lets a local Ollama model read files with secrets or personal data and returns only a filtered answer."
 requires-python = ">=3.11"
-dependencies = ["mcp>=1.2"]
+dependencies = ["mcp>=2.3", "httpx2>=2.16"]
 
 [project.scripts]
 local-llm-guard = "local_llm_guard.server:main"

@@ -65,3 +65,15 @@ def test_list_version_and_max_ctx():
     assert client.list_models() == ["a:1", "b:2"]
     assert client.version() == "0.9.9"
     assert client.model_max_ctx() == 32768
+
+
+def test_timeout_names_url_not_body():
+    def handler(request):
+        raise httpx.ReadTimeout("slow", request=request)
+
+    client = OllamaClient(Config(), transport=httpx.MockTransport(handler))
+    with pytest.raises(OllamaError) as exc:
+        client.chat("system-part", "user-part-zzzzz")
+    msg = str(exc.value)
+    assert "http://127.0.0.1:11434" in msg
+    assert "system-part" not in msg and "user-part" not in msg

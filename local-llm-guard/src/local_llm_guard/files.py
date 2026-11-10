@@ -26,7 +26,7 @@ def estimate_tokens(text: str) -> int:
 
 
 def _is_env_name(name: str) -> bool:
-    return name == ".env" or name.startswith(".env.")
+    return ".env" in name.lower()
 
 
 def load_files(paths: list[str]) -> list[LoadedFile]:
@@ -37,13 +37,15 @@ def load_files(paths: list[str]) -> list[LoadedFile]:
         p = Path(raw)
         if not p.is_absolute():
             raise FileRefused(f"{raw}: only absolute paths are accepted")
+        if _is_env_name(p.name):
+            raise FileRefused(".env files are never read")
         try:
             real = p.resolve(strict=True)
         except (FileNotFoundError, NotADirectoryError):
             raise FileRefused(f"{raw}: file not found") from None
         except (OSError, RuntimeError):
             raise FileRefused(f"{raw}: cannot resolve path") from None
-        if _is_env_name(p.name) or _is_env_name(real.name):
+        if _is_env_name(real.name):
             raise FileRefused(".env files are never read")
         if real.is_dir():
             raise FileRefused(f"{real}: is a directory")
