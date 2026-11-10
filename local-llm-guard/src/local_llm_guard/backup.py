@@ -11,12 +11,13 @@ def default_root() -> Path:
     return Path.home() / ".local" / "state" / "local-llm-guard" / "backups"
 
 
-def backup_file(path: Path, root: Path | None = None) -> Path:
+def backup_file(path: Path, root: Path | None = None, data: bytes | None = None) -> Path:
     """Copy the file bytes to <root>/<path with / as %>.<YYYYmmdd-HHMMSS>."""
     root = root or default_root()
     root.mkdir(parents=True, exist_ok=True)
     os.chmod(root, 0o700)
-    data = Path(path).read_bytes()
+    if data is None:
+        data = Path(path).read_bytes()
     base = str(path).replace("/", "%") + "." + time.strftime("%Y%m%d-%H%M%S")
     n = 0
     while True:

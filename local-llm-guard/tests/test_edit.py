@@ -94,3 +94,8 @@ def test_schema_and_diff():
     assert CHANGE_SCHEMA["properties"]["changes"]["maxItems"] == 50
     d = unified_diff("a\n", "b\n", "/x/f.txt")
     assert "-a" in d and "+b" in d and "/x/f.txt" in d
+
+
+def test_mixed_endings_rejected():
+    with pytest.raises(EditRejected, match="mixes CRLF and LF"):
+        apply_changes("a\r\nb\n", [Change(1, "a", "x")], {})

@@ -98,3 +98,26 @@ def test_timeout_and_oserror_return_false(monkeypatch):
 
     monkeypatch.setattr(approval.subprocess, "run", boom2)
     assert ask_approval("x", "/tmp/x") is False
+
+
+def test_non_darwin_returns_false_without_subprocess(monkeypatch):
+    def fail(cmd, **kw):
+        raise AssertionError("subprocess must not run")
+
+    monkeypatch.setattr(approval.subprocess, "run", fail)
+    monkeypatch.setattr(approval.sys, "platform", "linux")
+    assert ask_approval("x", "/tmp/x") is False
+
+
+def test_long_diff_temp_file_removed_when_run_raises(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(approval.sys, "platform", "darwin")
+
+    def boom(cmd, **kw):
+        raise OSError("x")
+
+    monkeypatch.setattr(approval.subprocess, "run", boom)
+    diff = "\n".join(f"+l{i}" for i in range(61))
+    assert ask_approval(diff, "/tmp/x") is False
+    tmpdir = tmp_path / ".local" / "state" / "local-llm-guard" / "tmp"
+    assert tmpdir.is_dir() and list(tmpdir.iterdir()) == []

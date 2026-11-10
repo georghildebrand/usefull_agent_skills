@@ -34,3 +34,10 @@ def test_prune(tmp_path):
 
 def test_prune_missing_root(tmp_path):
     assert prune_backups(root=tmp_path / "none") == 0
+
+
+def test_backup_uses_given_bytes(tmp_path):
+    src = tmp_path / "f.txt"
+    src.write_bytes(b"changed")
+    b = backup_file(src, tmp_path / "bk", data=b"verified")
+    assert b.read_bytes() == b"verified"

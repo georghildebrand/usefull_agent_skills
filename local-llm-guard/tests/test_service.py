@@ -310,3 +310,48 @@ def test_edit_checks_run_before_model(tmp_path):
     env = str(tmp_path / (".en" + "v"))
     out = service.edit(env, "x", _edit_client([]), Config(), _yes([]))
     assert out == "error: .env files are never read"
+
+
+def test_edit_literal_placeholder_rejected(tmp_path, monkeypatch):
+    _bk(tmp_path, monkeypatch)
+    text = f"note = <SECRET_1>\ntoken = {TOKEN}\n"
+    path = write(tmp_path, "c.ini", text)
+    client = _edit_client([])
+    out = service.edit(path, "x", client, Config(), _yes([]))
+    assert out == "error: file already contains placeholder text"
+    assert client.chat_calls == 0 and client.calls == 1  # only list_models
+    assert Path(path).read_text() == text
+
+
+def test_edit_mixed_endings_rejected_before_model(tmp_path, monkeypatch):
+    _bk(tmp_path, monkeypatch)
+    p = tmp_path / "m.txt"
+    p.write_bytes(b"a\r\nb\n")
+    client = _edit_client([{"line": 1, "old": "a", "new": "x"}])
+    out = service.edit(str(p), "x", client, Config(), _yes([]))
+    assert out == "error: file mixes CRLF and LF line endings"
+    assert p.read_bytes() == b"a\r\nb\n"
+
+
+def test_edit_backup_holds_original_bytes(tmp_path, monkeypatch):
+    bk = _bk(tmp_path, monkeypatch)
+    path = write(tmp_path, "c.ini", "a = 1\n")
+    client = _edit_client([{"line": 1, "old": "a = 1", "new": "a = 2"}])
+    service.edit(path, "x", client, Config(), _yes([]))
+    assert [b.read_bytes() for b in bk.iterdir()] == [b"a = 1\n"]
+
+
+def test_edit_backup_failure_leaves_file(tmp_path, monkeypatch):
+    from local_llm_guard import edit as edit_mod
+
+    _bk(tmp_path, monkeypatch)
+    path = write(tmp_path, "c.ini", "a = 1\n")
+
+    def boom(*a, **k):
+        raise OSError("disk")
+
+    monkeypatch.setattr(edit_mod, "backup_file", boom)
+    client = _edit_client([{"line": 1, "old": "a = 1", "new": "a = 2"}])
+    out = service.edit(path, "x", client, Config(), _yes([]))
+    assert out.startswith("error:")
+    assert Path(path).read_text() == "a = 1\n"

@@ -6,6 +6,7 @@ import difflib
 import hashlib
 import json
 import os
+import re
 import stat
 import tempfile
 from collections import Counter
@@ -86,6 +87,8 @@ def parse_changes(raw: str) -> list[Change]:
 
 
 def _split(text: str) -> tuple[list[str], str, bool]:
+    if "\r\n" in text and re.search(r"(?<!\r)\n", text):
+        raise EditRejected("file mixes CRLF and LF line endings")
     eol = "\r\n" if "\r\n" in text else "\n"
     final = text.endswith("\n")
     lines = text.split(eol)
@@ -173,6 +176,9 @@ def edit(
     check_model(cfg, client.list_models())
     files = load_files([path])
     f = files[0]
+    if PLACEHOLDER_RE.search(f.text):
+        raise EditRejected("file already contains placeholder text")
+    _split(f.text)  # rejects mixed line endings before the model is called
     first_hash = _sha(f.text.encode("utf-8"))
     masked = mask_secrets(f.text)
     check_budget(files, instruction, cfg.num_ctx)
@@ -201,6 +207,6 @@ def edit(
     if _sha(current) != first_hash:
         raise EditRejected("file changed while waiting for approval")
     mode = stat.S_IMODE(f.path.stat().st_mode)
-    backup = backup_file(f.path)
+    backup = backup_file(f.path, data=current)
     _atomic_write(f.path, new_real.encode("utf-8"), mode)
     return f"approved: file {f.path} was changed, backup in {backup}\n\n{safe_diff}"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -31,6 +32,8 @@ def build_script(text: str, name: str, timeout_s: int) -> str:
 
 
 def ask_approval(diff: str, path: str, timeout_s: int = 120) -> bool:
+    if sys.platform != "darwin":
+        return False
     text = f"File: {path}\n\n"
     tmp: Path | None = None
     try:
