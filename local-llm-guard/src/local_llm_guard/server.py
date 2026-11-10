@@ -90,7 +90,10 @@ def build_server(
 
 
 def main() -> None:
-    prune_backups()
+    try:
+        prune_backups()
+    except OSError:
+        pass  # an unreadable backup folder must not stop the server; the next start tries again
     build_server({"cfg": config_from_env(os.environ)}).run("stdio")
 
 

@@ -9,9 +9,13 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-Approver = Callable[[str, str], bool]
+Approver = Callable[[str, str, bool], bool]  # (real diff, path, touches a secret line)
 
+# `display dialog` does not scroll, so only a diff that surely fits on screen goes into it.
 MAX_DIALOG_LINES = 60
+MAX_DIALOG_CHARS = 4000
+MAX_DIALOG_LINE_LEN = 200
+SECRET_LINE_WARNING = "Warning: this change touches a line with a secret value."
 
 
 def _esc(text: str) -> str:
@@ -31,13 +35,22 @@ def build_script(text: str, name: str, timeout_s: int) -> str:
     )
 
 
-def ask_approval(diff: str, path: str, timeout_s: int = 120) -> bool:
+def fits_dialog(diff: str) -> bool:
+    lines = diff.splitlines()
+    return (
+        len(lines) <= MAX_DIALOG_LINES
+        and len(diff) <= MAX_DIALOG_CHARS
+        and all(len(line) <= MAX_DIALOG_LINE_LEN for line in lines)
+    )
+
+
+def ask_approval(diff: str, path: str, warning: bool = False, timeout_s: int = 120) -> bool:
     if sys.platform != "darwin":
         return False
-    text = f"File: {path}\n\n"
+    text = (SECRET_LINE_WARNING + "\n\n" if warning else "") + f"File: {path}\n\n"
     tmp: Path | None = None
     try:
-        if len(diff.splitlines()) <= MAX_DIALOG_LINES:
+        if fits_dialog(diff):
             text += diff
         else:
             d = _tmp_dir()
@@ -47,7 +60,11 @@ def ask_approval(diff: str, path: str, timeout_s: int = 120) -> bool:
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(diff)
-            subprocess.run(["open", "-e", str(tmp)], capture_output=True, timeout=30, check=False)
+            opened = subprocess.run(
+                ["open", "-e", str(tmp)], capture_output=True, timeout=30, check=False
+            )
+            if opened.returncode != 0:
+                return False  # the user could not see the diff, so no dialog
             text += "The diff is long. The full diff is open in TextEdit."
         script = build_script(text, Path(path).name, timeout_s)
         proc = subprocess.run(

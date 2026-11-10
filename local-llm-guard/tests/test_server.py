@@ -47,3 +47,23 @@ def test_client_factory_error_is_guarded():
         text = str(result)
         assert "internal error (RuntimeError)" in text
         assert "xsecret" not in text
+
+
+def test_main_starts_when_prune_fails(monkeypatch, capsys):
+    from local_llm_guard import server
+
+    started = []
+
+    class FakeServer:
+        def run(self, transport):
+            started.append(transport)
+
+    def boom(*a, **k):
+        raise PermissionError("denied: /some/backup/dir")
+
+    monkeypatch.setattr(server, "prune_backups", boom)
+    monkeypatch.setattr(server, "build_server", lambda holder: FakeServer())
+    server.main()
+    assert started == ["stdio"]
+    cap = capsys.readouterr()
+    assert cap.out == "" and cap.err == ""
