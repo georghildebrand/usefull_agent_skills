@@ -23,6 +23,10 @@ class NotLocal(Exception):
     """The Ollama endpoint or the model is not local."""
 
 
+class ConfigRejected(ValueError):
+    """local_config refused a value. The message names the value and the reason."""
+
+
 def _int_env(env: Mapping[str, str], name: str, default: int) -> int:
     raw = env.get(name)
     if raw is None or not raw.strip():
@@ -81,13 +85,13 @@ def update_config(
 ) -> Config:
     new_model = cfg.model if model is None else model
     if model is not None and (model not in installed or _is_cloud(model)):
-        raise ValueError(f"model {model} is not a local model")
+        raise ConfigRejected(f"model {model} is not a local model")
     if num_ctx is not None and not (MIN_NUM_CTX <= num_ctx <= model_max_ctx):
-        raise ValueError(
+        raise ConfigRejected(
             f"num_ctx {num_ctx} is out of range: allowed {MIN_NUM_CTX} to {model_max_ctx}"
         )
     if timeout_s is not None and timeout_s < 1:
-        raise ValueError("timeout_s must be at least 1")
+        raise ConfigRejected("timeout_s must be at least 1")
     return replace(
         cfg,
         model=new_model,

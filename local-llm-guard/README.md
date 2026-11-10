@@ -69,25 +69,33 @@ A "yes" covers one file only.
 
 1. The model proposes a list of changes.
 2. The list is checked against the file.
-3. A dialog shows the file name, the full path and the real diff.
+3. A dialog shows the file name, the full path and the real diff. If a change touches a line that holds a secret value, the first line of the dialog says: `Warning: this change touches a line with a secret value.`
 4. Cancel is the default button. If you do not answer in 120 seconds, this counts as Cancel.
 5. The file hash is checked again, to see that the file did not change meanwhile.
 6. A backup is written.
 7. The file is replaced in one atomic write.
-8. Claude Code gets the outcome and a masked diff.
+8. Claude Code gets the outcome and a masked diff. If the diff has more than 20 changed lines, Claude Code gets only the counts, for example `+25/-25 lines`.
+
+A change is refused before the dialog when its new text holds invisible characters: Unicode format or control characters other than tab and newline (for example a zero-width space or a right-to-left override). Such characters can make the dialog show something else than what is written.
+
+The diff goes into the dialog only when it has at most 60 lines, at most 4000 characters, and no line longer than 200 characters. The dialog cannot scroll, so a bigger diff opens in TextEdit instead. If TextEdit cannot be opened, no dialog is shown and the edit counts as Cancel.
 
 ## Limits
 
 - Small text files only. At most 5 files per call. No chunking. If a file does not fit in `num_ctx`, the tool returns an error with the numbers.
+- The size check counts the exact text sent to the model: the system prompt, the file headers, the file text, and in `local_edit` the line numbers. Each digit counts as one token, all other characters as one token per 3 characters. 1024 tokens stay free for the answer, and the answer may not be longer than that.
+- After the model call, the tool asks Ollama how many prompt tokens it read. If the prompt filled the context, or the answer was cut off, the tool returns `error: input or answer did not fit the context` and no model text.
+- `local_ask` and `local_task` refuse an answer that repeats the files: `error: answer repeats the file content`. This happens when the answer holds at least half of the file lines (lines of 8 characters or more) word for word. Files with fewer than 5 such lines are not checked.
 - Files whose name contains `.env` are always refused.
-- Secrets are masked before the model sees the file. If a known secret appears in the answer (also in encoded form), the answer becomes an error.
+- Secrets are masked before the model sees the file. The rules cover, among others: keys whose name holds a credential word in any case (`password`, `pass`, `pw`, `pwd`, `passwort`, `kennwort`, `token`, `secret`, `key`, also inside names like `DB_PASS` or `db.pw`), XML elements and attributes with such names, `.netrc` lines, command line flags (`--password v`, `--token v`, and `-p v` after a database command), YAML block values and JSON arrays below such keys, and sentences like `the password is X`. The same rules run again on the answer. Masking too much is accepted; masking too little is not. If a known secret appears in the answer (also in encoded form), the answer becomes an error.
 - Masking of personal data (e-mail, phone, IBAN, and names found by a second local model call) is best effort. It is not a guarantee.
 - Business numbers stay visible on purpose.
 - "Ask first" is an instruction to Claude Code. It is not a technical lock.
-- `local_config` changes last only until Claude Code restarts.
+- `local_config` changes last only until Claude Code restarts. A refused value comes back with the reason, for example `error: num_ctx 1024 is out of range: allowed 2048 to 32768`. When the same call changes the model, `num_ctx` is checked against the maximum of the new model.
+- The connection to Ollama ignores proxy settings (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) and `.netrc`. A proxy could send the file to another machine.
 - Files that mix CRLF and LF line endings cannot be edited. Files that already contain text like `<SECRET_1>` cannot be edited.
-- A long diff (over 60 lines) opens in TextEdit. The temporary file is deleted after the dialog. The TextEdit window still shows the real values until you close it. macOS may also keep the window content in its saved state.
-- Backups are kept for 30 days in `~/.local/state/local-llm-guard/backups`.
+- A long diff opens in TextEdit (see "How an edit works"). The temporary file is deleted after the dialog. The TextEdit window still shows the real values until you close it. macOS may also keep the window content in its saved state.
+- Backups are kept for 30 days in `~/.local/state/local-llm-guard/backups`. Old backups are deleted when the server starts. If the folder cannot be read, this step is skipped and the server starts anyway.
 
 ## Measured cost of the context size
 

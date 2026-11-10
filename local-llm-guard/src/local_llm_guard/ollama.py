@@ -2,20 +2,39 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 import httpx2 as httpx
 
 from .config import Config
+from .files import ANSWER_RESERVE
+
+FIT_ERROR = "input or answer did not fit the context"
 
 
 class OllamaError(Exception):
     """A call to Ollama failed."""
 
 
+@dataclass
+class ChatResult:
+    text: str
+    prompt_eval_count: int | None = None  # prompt tokens Ollama read, if it reported them
+    done_reason: str | None = None  # "length" means the answer was cut
+
+
+def checked_text(result: ChatResult, num_ctx: int) -> str:
+    """Return the text, or raise when the prompt filled the context or the answer was cut."""
+    count = result.prompt_eval_count
+    if result.done_reason == "length" or (count is not None and count >= num_ctx - ANSWER_RESERVE):
+        raise OllamaError(FIT_ERROR)
+    return result.text
+
+
 class Client(Protocol):
-    def chat(self, system: str, user: str, json_schema: dict | None = None) -> str: ...
-    def model_max_ctx(self) -> int: ...
+    def chat(self, system: str, user: str, json_schema: dict | None = None) -> ChatResult: ...
+    def model_max_ctx(self, model: str | None = None) -> int: ...
     def list_models(self) -> list[str]: ...
     def version(self) -> str: ...
 
@@ -25,17 +44,24 @@ class OllamaClient:
         self.cfg = cfg
         self._transport = transport
 
-    def _request(self, method: str, path: str, body: dict | None = None) -> dict:
+    def _http(self) -> httpx.Client:
+        # trust_env=False: no proxy from HTTP_PROXY/ALL_PROXY and no .netrc, so the
+        # request goes straight to the loopback address.
+        return httpx.Client(transport=self._transport, timeout=self.cfg.timeout_s, trust_env=False)
+
+    def _request(
+        self, method: str, path: str, body: dict | None = None, model: str | None = None
+    ) -> dict:
         url = self.cfg.base_url.rstrip("/") + path
         try:
-            with httpx.Client(transport=self._transport, timeout=self.cfg.timeout_s) as http:
+            with self._http() as http:
                 resp = http.request(method, url, json=body)
         except httpx.TimeoutException:
             raise OllamaError(f"Ollama at {self.cfg.base_url} timed out") from None
         except httpx.HTTPError:
             raise OllamaError(f"Ollama not reachable at {self.cfg.base_url}") from None
         if resp.status_code == 404:
-            raise OllamaError(f"model {self.cfg.model} not installed")
+            raise OllamaError(f"model {model or self.cfg.model} not installed")
         if resp.status_code >= 400:
             raise OllamaError(f"Ollama returned HTTP {resp.status_code}")
         try:
@@ -46,7 +72,7 @@ class OllamaClient:
             raise OllamaError("Ollama returned an invalid response")
         return data
 
-    def chat(self, system: str, user: str, json_schema: dict | None = None) -> str:
+    def chat(self, system: str, user: str, json_schema: dict | None = None) -> ChatResult:
         body: dict = {
             "model": self.cfg.model,
             "stream": False,
@@ -54,23 +80,35 @@ class OllamaClient:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "options": {"num_ctx": self.cfg.num_ctx, "temperature": 0},
+            "options": {
+                "num_ctx": self.cfg.num_ctx,
+                "num_predict": ANSWER_RESERVE,
+                "temperature": 0,
+            },
         }
         if json_schema is not None:
             body["format"] = json_schema
         data = self._request("POST", "/api/chat", body)
-        content = data.get("message", {}).get("content")
+        message = data.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
         if not isinstance(content, str):
             raise OllamaError("Ollama returned no message")
-        return content
+        count = data.get("prompt_eval_count")
+        reason = data.get("done_reason")
+        return ChatResult(
+            text=content,
+            prompt_eval_count=count if isinstance(count, int) else None,
+            done_reason=reason if isinstance(reason, str) else None,
+        )
 
-    def model_max_ctx(self) -> int:
-        data = self._request("POST", "/api/show", {"model": self.cfg.model})
+    def model_max_ctx(self, model: str | None = None) -> int:
+        name = model or self.cfg.model
+        data = self._request("POST", "/api/show", {"model": name}, model=name)
         info = data.get("model_info") or {}
         for key, value in info.items():
             if key.endswith(".context_length") and isinstance(value, int):
                 return value
-        raise OllamaError(f"cannot read the context length of model {self.cfg.model}")
+        raise OllamaError(f"cannot read the context length of model {name}")
 
     def list_models(self) -> list[str]:
         data = self._request("GET", "/api/tags")

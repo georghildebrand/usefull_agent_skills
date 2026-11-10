@@ -22,7 +22,9 @@ class LoadedFile:
 
 
 def estimate_tokens(text: str) -> int:
-    return math.ceil(len(text) / 3)
+    """Upper estimate: models give each digit its own token; other text needs at most 1 per 3."""
+    digits = sum(ch.isdigit() for ch in text)
+    return digits + math.ceil((len(text) - digits) / 3)
 
 
 def _is_env_name(name: str) -> bool:
@@ -69,7 +71,8 @@ def load_files(paths: list[str]) -> list[LoadedFile]:
 
 
 def check_budget(files: list[LoadedFile], prompt: str, num_ctx: int) -> None:
-    total = sum(f.tokens for f in files) + estimate_tokens(prompt) + ANSWER_RESERVE
+    """`prompt` is the exact text sent: system prompt, file headers, file text and task."""
+    total = estimate_tokens(prompt) + ANSWER_RESERVE
     if total > num_ctx:
         listing = ", ".join(f"{f.path} ({f.tokens} tokens)" for f in files)
         raise FileRefused(

@@ -9,18 +9,22 @@ import os
 import re
 import stat
 import tempfile
+import unicodedata
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from local_llm_guard.approval import Approver, ask_approval
 from local_llm_guard.backup import backup_file
 from local_llm_guard.config import Config, check_host, check_model
 from local_llm_guard.files import check_budget, load_files
-from local_llm_guard.ollama import Client
+from local_llm_guard.ollama import Client, checked_text
 from local_llm_guard.outfilter import filter_output
 from local_llm_guard.secrets import PLACEHOLDER_RE, mask_secrets
 
 MAX_CHANGES = 50
+# Claude gets the masked diff only up to this many changed lines; above it, only the counts.
+MAX_DIFF_LINES_FOR_CLAUDE = 20
 
 CHANGE_SCHEMA: dict = {
     "type": "object",
@@ -86,6 +90,14 @@ def parse_changes(raw: str) -> list[Change]:
     return out
 
 
+def _has_invisible(text: str) -> bool:
+    """Format (Cf) or control (Cc) characters, except tab and newline, can hide text in the dialog."""
+    return any(
+        unicodedata.category(ch) in ("Cf", "Cc") and ch not in "\t\n"
+        for ch in text.replace("\r\n", "\n")
+    )
+
+
 def _split(text: str) -> tuple[list[str], str, bool]:
     if "\r\n" in text and re.search(r"(?<!\r)\n", text):
         raise EditRejected("file mixes CRLF and LF line endings")
@@ -109,6 +121,8 @@ def apply_changes_masked(masked_text: str, changes: list[Change]) -> str:
         seen.add(ch.line)
         if lines[ch.line - 1] != ch.old:
             raise EditRejected(f"line {ch.line}: old text does not match the file")
+        if _has_invisible(ch.new):
+            raise EditRejected("change contains invisible control characters")
         if Counter(PLACEHOLDER_RE.findall(ch.new)) != Counter(PLACEHOLDER_RE.findall(ch.old)):
             raise EditRejected(f"line {ch.line}: placeholders must stay unchanged")
     by_line = {ch.line: ch for ch in changes}
@@ -140,6 +154,19 @@ def unified_diff(old: str, new: str, path: str) -> str:
             tofile=path,
         )
     )
+
+
+def _diff_for_claude(masked_diff: str, filtered: Callable[[str], str]) -> str:
+    """The masked diff if it is small, else only the counts of added and removed lines."""
+    lines = masked_diff.splitlines()
+    added = sum(1 for x in lines if x.startswith("+") and not x.startswith("+++"))
+    removed = sum(1 for x in lines if x.startswith("-") and not x.startswith("---"))
+    if added + removed > MAX_DIFF_LINES_FOR_CLAUDE:
+        return (
+            f"diff not shown, more than {MAX_DIFF_LINES_FOR_CLAUDE} changed lines: "
+            f"+{added}/-{removed} lines"
+        )
+    return filtered(masked_diff)
 
 
 def _sha(data: bytes) -> str:
@@ -181,10 +208,11 @@ def edit(
     _split(f.text)  # rejects mixed line endings before the model is called
     first_hash = _sha(f.text.encode("utf-8"))
     masked = mask_secrets(f.text)
-    check_budget(files, instruction, cfg.num_ctx)
     numbered = "\n".join(f"{n}| {line}" for n, line in enumerate(_split(masked.masked)[0], 1))
     user = f"=== file: {f.path} ===\n{numbered}\n=== end of file ===\n\nTask:\n{instruction}"
-    changes = parse_changes(client.chat(_SYSTEM, user, CHANGE_SCHEMA))
+    check_budget(files, _SYSTEM + "\n" + user, cfg.num_ctx)
+    raw = checked_text(client.chat(_SYSTEM, user, CHANGE_SCHEMA), cfg.num_ctx)
+    changes = parse_changes(raw)
     if not changes:
         return f"no change: the model proposed no changes for {f.path}"
     new_masked = apply_changes_masked(masked.masked, changes)
@@ -192,13 +220,13 @@ def edit(
     if new_real == f.text:
         return f"no change: the proposal leaves {f.path} as it is"
     real_diff = unified_diff(f.text, new_real, str(f.path))
+    touches_secret = any(PLACEHOLDER_RE.search(ch.old) for ch in changes)
     # Claude gets the diff of the MASKED texts only, filtered like every other answer.
-    safe_diff = filter_output(
+    safe_diff = _diff_for_claude(
         unified_diff(masked.masked, new_masked, f.path.name),
-        masked.mapping.values(),
-        make_name_finder(client),
+        lambda d: filter_output(d, masked.mapping.values(), make_name_finder(client, cfg.num_ctx)),
     )
-    if not approve(real_diff, str(f.path)):
+    if not approve(real_diff, str(f.path), touches_secret):
         return f"rejected: file {f.path} was not changed\n\n{safe_diff}"
     try:
         current = f.path.read_bytes()

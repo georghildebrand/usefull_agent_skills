@@ -3,17 +3,31 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 from local_llm_guard.approval import Approver, ask_approval
-from local_llm_guard.config import Config, NotLocal, check_host, check_model, update_config
+from local_llm_guard.config import (
+    Config,
+    ConfigRejected,
+    NotLocal,
+    check_host,
+    check_model,
+    update_config,
+)
 from local_llm_guard.edit import EditRejected
 from local_llm_guard.edit import edit as run_edit
 from local_llm_guard.files import FileRefused, check_budget, load_files
-from local_llm_guard.ollama import Client, OllamaError
+from local_llm_guard.ollama import Client, OllamaError, checked_text
 from local_llm_guard.outfilter import LeakError, NameFinder, filter_output
 from local_llm_guard.secrets import mask_secrets
 
-_KNOWN = (FileRefused, OllamaError, LeakError, NotLocal, EditRejected)
+_KNOWN = (FileRefused, OllamaError, LeakError, NotLocal, EditRejected, ConfigRejected)
+
+# An answer that holds at least half of the file lines (of 8 or more characters) is a copy
+# of the file. Fixed on purpose: nothing about the filter is configurable.
+_REPEAT_MIN_LINE_LEN = 8
+_REPEAT_MIN_LINES = 5
+REPEAT_ERROR = "answer repeats the file content"
 
 _SYSTEM = (
     "You work on the files given by the user. Do the task using only these files. "
@@ -63,9 +77,9 @@ def error_text(exc: Exception) -> str:
     return f"error: internal error ({type(exc).__name__})"
 
 
-def make_name_finder(client: Client) -> NameFinder:
+def make_name_finder(client: Client, num_ctx: int) -> NameFinder:
     def find(text: str) -> list[str]:
-        raw = client.chat(_NAME_SYSTEM, f"Text:\n{text}", _NAME_SCHEMA)
+        raw = checked_text(client.chat(_NAME_SYSTEM, f"Text:\n{text}", _NAME_SCHEMA), num_ctx)
         data = json.loads(raw)
         names = data.get("names") if isinstance(data, dict) else None
         if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
@@ -73,6 +87,20 @@ def make_name_finder(client: Client) -> NameFinder:
         return names
 
     return find
+
+
+def repeats_files(answer: str, texts: list[str]) -> bool:
+    """True when the answer holds at least half of the long file lines verbatim."""
+    lines = [
+        line.strip()
+        for text in texts
+        for line in text.splitlines()
+        if len(line.strip()) >= _REPEAT_MIN_LINE_LEN
+    ]
+    if len(lines) < _REPEAT_MIN_LINES:
+        return False
+    hits = sum(1 for line in lines if line in answer)
+    return 2 * hits >= len(lines)
 
 
 def _run(paths: list[str], request: str, client: Client, cfg: Config) -> str:
@@ -86,14 +114,16 @@ def _run(paths: list[str], request: str, client: Client, cfg: Config) -> str:
     masked_parts = masked_all.masked.split(sep)
     if len(masked_parts) != len(files):
         raise LeakError("masking failed")
-    check_budget(files, request, cfg.num_ctx)
     blocks = [
         f"=== file: {f.path} ===\n{text}\n=== end of file ==="
         for f, text in zip(files, masked_parts)
     ]
     user = "\n\n".join(blocks) + f"\n\nTask:\n{request}"
-    answer = client.chat(_SYSTEM, user)
-    safe = filter_output(answer, mapping.values(), make_name_finder(client))
+    check_budget(files, _SYSTEM + "\n" + user, cfg.num_ctx)
+    answer = checked_text(client.chat(_SYSTEM, user), cfg.num_ctx)
+    if repeats_files(answer, masked_parts):
+        raise LeakError(REPEAT_ERROR)
+    safe = filter_output(answer, mapping.values(), make_name_finder(client, cfg.num_ctx))
     header = "\n".join(f"file: {f.path} (~{f.tokens} tokens, fits)" for f in files)
     return f"{header}\n\n{safe}"
 
@@ -155,12 +185,15 @@ def configure(
     try:
         check_host(cfg)
         installed = client.list_models()
+        if model is not None:
+            # Refuse a cloud or missing model before asking Ollama about it.
+            check_model(replace(cfg, model=model), installed)
         new = update_config(
             cfg,
             num_ctx=num_ctx,
             model=model,
             timeout_s=timeout_s,
-            model_max_ctx=client.model_max_ctx(),
+            model_max_ctx=client.model_max_ctx(model),  # the maximum of the requested model
             installed=installed,
         )
         check_host(new)

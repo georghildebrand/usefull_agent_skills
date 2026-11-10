@@ -17,7 +17,7 @@ def test_chat_sends_num_ctx_and_no_stream():
 
     cfg = Config(num_ctx=4096)
     client = OllamaClient(cfg, transport=httpx.MockTransport(handler))
-    assert client.chat("sys", "usr", {"type": "object"}) == "hi"
+    assert client.chat("sys", "usr", {"type": "object"}).text == "hi"
     assert seen["url"].endswith("/api/chat")
     assert seen["body"]["options"]["num_ctx"] == 4096
     assert seen["body"]["stream"] is False
@@ -77,3 +77,73 @@ def test_timeout_names_url_not_body():
     msg = str(exc.value)
     assert "http://127.0.0.1:11434" in msg
     assert "system-part" not in msg and "user-part" not in msg
+
+
+def test_client_ignores_proxy_env(monkeypatch):
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "all_proxy"):
+        monkeypatch.setenv(name, "http://proxy.example:3128")
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    client = OllamaClient(Config())
+    with client._http() as http:
+        assert http.trust_env is False
+        assert not http._mounts
+        for url in ("http://127.0.0.1:11434/api/chat", "http://localhost:11434/x"):
+            assert http._transport_for_url(httpx.URL(url)) is http._transport
+
+
+def test_proxy_env_does_not_reroute_mock_transport(monkeypatch):
+    monkeypatch.setenv("ALL_PROXY", "http://proxy.example:3128")
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.example:3128")
+    seen = {}
+
+    def handler(request):
+        seen["host"] = request.url.host
+        return httpx.Response(200, json={"message": {"content": "hi"}})
+
+    OllamaClient(Config(), transport=httpx.MockTransport(handler)).chat("s", "u")
+    assert seen["host"] == "127.0.0.1"
+
+
+def test_chat_sends_num_predict_and_returns_counts():
+    from local_llm_guard.files import ANSWER_RESERVE
+
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={"message": {"content": "hi"}, "prompt_eval_count": 42, "done_reason": "stop"},
+        )
+
+    r = OllamaClient(Config(), transport=httpx.MockTransport(handler)).chat("s", "u")
+    assert seen["body"]["options"]["num_predict"] == ANSWER_RESERVE
+    assert (r.text, r.prompt_eval_count, r.done_reason) == ("hi", 42, "stop")
+
+
+def test_checked_text_refuses_full_context_and_cut_answer():
+    from local_llm_guard.files import ANSWER_RESERVE
+    from local_llm_guard.ollama import ChatResult, checked_text
+
+    assert checked_text(ChatResult("ok", 100, "stop"), 4096) == "ok"
+    assert checked_text(ChatResult("ok", None, None), 4096) == "ok"
+    for r in (
+        ChatResult("x", 4096 - ANSWER_RESERVE, "stop"),
+        ChatResult("x", 4096, "stop"),
+        ChatResult("x", 10, "length"),
+    ):
+        with pytest.raises(OllamaError, match="^input or answer did not fit the context$"):
+            checked_text(r, 4096)
+
+
+def test_model_max_ctx_for_other_model():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"model_info": {"gemma3.context_length": 8192}})
+
+    client = OllamaClient(Config(), transport=httpx.MockTransport(handler))
+    assert client.model_max_ctx("gemma3:4b") == 8192
+    assert seen["body"]["model"] == "gemma3:4b"

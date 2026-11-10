@@ -3,7 +3,13 @@ import pathlib
 
 import pytest
 
-from local_llm_guard.files import FileRefused, LoadedFile, check_budget, load_files
+from local_llm_guard.files import (
+    FileRefused,
+    LoadedFile,
+    check_budget,
+    estimate_tokens,
+    load_files,
+)
 
 
 def _no_read(*a, **k):
@@ -77,11 +83,25 @@ def test_permission_denied(tmp_path):
 
 
 def test_budget(tmp_path):
+    # The budget is checked on the exact prompt text, which holds the file text.
     small = LoadedFile(tmp_path / "small.txt", "a" * 30, 10)
-    check_budget([small], "summarize", 16384)
+    check_budget([small], "summarize " + small.text, 16384)
     big = LoadedFile(tmp_path / "big.txt", "a" * 60000, 20000)
     with pytest.raises(FileRefused, match=r"big\.txt.*20000.*16384.*raise it with local_config"):
-        check_budget([big], "summarize", 16384)
+        check_budget([big], "summarize " + big.text, 16384)
+
+
+def test_estimate_counts_each_digit_as_one_token():
+    assert estimate_tokens("1234567890") == 10
+    assert estimate_tokens("abcdef") == 2
+    assert estimate_tokens("a1b2c3") == 3 + 1
+    assert estimate_tokens("12,34\n" * 100) == 400 + 67
+
+
+def test_budget_counts_the_prompt_not_the_file_estimate(tmp_path):
+    f = LoadedFile(tmp_path / "t.txt", "x", 1)
+    with pytest.raises(FileRefused, match="input too large"):
+        check_budget([f], "9" * 1100, 2048)
 
 
 @pytest.mark.parametrize("name", [".EN" + "V", ".En" + "v.local", ".en" + "vrc", "prod.en" + "v"])

@@ -5,14 +5,28 @@ import pytest
 
 from local_llm_guard import service
 from local_llm_guard.config import Config
-from local_llm_guard.ollama import OllamaError
+from local_llm_guard.ollama import ChatResult, OllamaError
 
 TOKEN = "ghp_" + "a1" * 18
 
 
 class FakeClient:
-    def __init__(self, answer="ok", names=None, models=None, error=None, raw_names=None):
+    def __init__(
+        self,
+        answer="ok",
+        names=None,
+        models=None,
+        error=None,
+        raw_names=None,
+        prompt_eval_count=None,
+        done_reason="stop",
+        max_ctx=None,
+    ):
         self.raw_names = raw_names
+        self.prompt_eval_count = prompt_eval_count
+        self.done_reason = done_reason
+        self.max_ctx = max_ctx or {}
+        self.max_ctx_asked: list = []
         self.calls = 0
         self.answer = answer
         self.names = names or []
@@ -21,6 +35,9 @@ class FakeClient:
         self.messages: list[str] = []
         self.chat_calls = 0
 
+    def _result(self, text):
+        return ChatResult(text, self.prompt_eval_count, self.done_reason)
+
     def chat(self, system, user, json_schema=None):
         self.calls += 1
         self.messages += [system, user]
@@ -28,16 +45,17 @@ class FakeClient:
             import json
 
             if self.raw_names is not None:
-                return self.raw_names
-            return json.dumps({"names": self.names})
+                return self._result(self.raw_names)
+            return self._result(json.dumps({"names": self.names}))
         self.chat_calls += 1
         if self.error:
             raise self.error
-        return self.answer
+        return self._result(self.answer)
 
-    def model_max_ctx(self):
+    def model_max_ctx(self, model=None):
         self.calls += 1
-        return 32768
+        self.max_ctx_asked.append(model)
+        return self.max_ctx.get(model, 32768)
 
     def list_models(self):
         self.calls += 1
@@ -114,7 +132,7 @@ def test_configure_rejects_out_of_range():
     out = service.configure(FakeClient(), Config(), num_ctx=100)
     assert isinstance(out, tuple)
     cfg, msg = out
-    assert msg.startswith("error:")
+    assert msg == "error: num_ctx 100 is out of range: allowed 2048 to 32768"
     assert cfg.num_ctx == 16384
 
 
@@ -141,7 +159,7 @@ def test_remote_endpoint_refused(tmp_path):
 def test_cloud_model_refused_after_configure():
     client = FakeClient(models=["qwen2.5:14b", "x:1b-cloud"])
     cfg, msg = service.configure(client, Config(), model="x:1b-cloud")
-    assert msg.startswith("error:")
+    assert msg == "error: model x:1b-cloud is not a local model"
     assert cfg.model == "qwen2.5:14b"
 
 
@@ -208,7 +226,7 @@ def _edit_client(changes, **kw):
     def chat(system, user, json_schema=None):
         if json_schema is not None and "changes" in json_schema.get("properties", {}):
             client.messages += [system, user]
-            return json.dumps({"changes": changes})
+            return client._result(json.dumps({"changes": changes}))
         return real_chat(system, user, json_schema)
 
     client.chat = chat
@@ -221,7 +239,7 @@ def _bk(tmp_path, monkeypatch):
 
 
 def _yes(seen):
-    return lambda d, p: seen.append((d, p)) or True
+    return lambda d, p, w: seen.append((d, p, w)) or True
 
 
 def test_edit_approved(tmp_path, monkeypatch):
@@ -256,7 +274,7 @@ def test_edit_rejected(tmp_path, monkeypatch):
     bk = _bk(tmp_path, monkeypatch)
     path = write(tmp_path, "c.ini", "a = 1\n")
     client = _edit_client([{"line": 1, "old": "a = 1", "new": "a = 2"}])
-    out = service.edit(path, "x", client, Config(), lambda d, p: False)
+    out = service.edit(path, "x", client, Config(), lambda d, p, w: False)
     assert out.startswith("rejected")
     assert Path(path).read_text() == "a = 1\n"
     assert not bk.exists() or not list(bk.iterdir())
@@ -267,7 +285,7 @@ def test_edit_file_changed_while_waiting(tmp_path, monkeypatch):
     path = write(tmp_path, "c.ini", "a = 1\n")
     client = _edit_client([{"line": 1, "old": "a = 1", "new": "a = 2"}])
 
-    def approver(d, p):
+    def approver(d, p, w):
         Path(p).write_text("a = 1\n# edited by user\n")
         return True
 
@@ -295,7 +313,7 @@ def test_edit_bad_proposal_message_has_no_content(tmp_path, monkeypatch):
     path = write(tmp_path, "c.ini", f"token = {TOKEN}\n")
     client = _edit_client([{"line": 1, "old": "token = <SECRET_1>", "new": "token = x"}])
     called = []
-    out = service.edit(path, "x", client, Config(), lambda d, p: called.append(1) or True)
+    out = service.edit(path, "x", client, Config(), lambda d, p, w: called.append(1) or True)
     assert out.startswith("error:") and "line 1" in out
     assert TOKEN not in out and not called
     assert Path(path).read_text() == f"token = {TOKEN}\n"
@@ -355,3 +373,174 @@ def test_edit_backup_failure_leaves_file(tmp_path, monkeypatch):
     out = service.edit(path, "x", client, Config(), _yes([]))
     assert out.startswith("error:")
     assert Path(path).read_text() == "a = 1\n"
+
+
+# --- final fix wave ---
+
+
+def test_configure_timeout_reason_kept():
+    _, msg = service.configure(FakeClient(), Config(), timeout_s=0)
+    assert msg == "error: timeout_s must be at least 1"
+
+
+def test_configure_checks_num_ctx_against_new_model():
+    client = FakeClient(models=["qwen2.5:14b", "gemma3:4b"], max_ctx={"gemma3:4b": 8192})
+    cfg, msg = service.configure(client, Config(), model="gemma3:4b", num_ctx=16384)
+    assert msg == "error: num_ctx 16384 is out of range: allowed 2048 to 8192"
+    assert cfg.model == "qwen2.5:14b"
+    assert "gemma3:4b" in client.max_ctx_asked
+    cfg, msg = service.configure(client, Config(), model="gemma3:4b", num_ctx=8192)
+    assert (cfg.model, cfg.num_ctx) == ("gemma3:4b", 8192)
+
+
+def test_configure_unknown_model_not_asked_for_max_ctx():
+    client = FakeClient(models=["qwen2.5:14b"])
+    _, msg = service.configure(client, Config(), model="nope:1b", num_ctx=4096)
+    assert msg == "error: model nope:1b is not a local model"
+    assert "nope:1b" not in client.max_ctx_asked
+
+
+def test_numeric_file_refused_by_digit_estimate(tmp_path):
+    # 3000 digits: the old chars/3 estimate (1000) fit into 4096; one token per digit does not.
+    path = write(tmp_path, "n.csv", ("1234567890" * 10 + "\n") * 30)
+    client = FakeClient()
+    out = service.ask([path], "sum", client, Config(num_ctx=4096))
+    assert out.startswith("error: input too large")
+    assert client.chat_calls == 0
+
+
+def test_budget_counts_system_prompt_and_headers(tmp_path):
+    # The file alone fits (950 + reserve 1024 + question < 2048); with system prompt it does not.
+    path = write(tmp_path, "p.txt", "x" * 2850)
+    client = FakeClient()
+    out = service.ask([path], "q", client, Config(num_ctx=2048))
+    assert out.startswith("error: input too large")
+    assert client.chat_calls == 0
+
+
+def test_edit_budget_counts_line_numbers(tmp_path):
+    # 500 one-letter lines: 334 tokens as raw text, but "N| " prefixes add over 1300 digits.
+    path = write(tmp_path, "l.txt", "x\n" * 500)
+    client = _edit_client([])
+    out = service.edit(path, "x", client, Config(num_ctx=2048), _yes([]))
+    assert out.startswith("error: input too large")
+    assert client.chat_calls == 0 and len(client.messages) == 0
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [{"prompt_eval_count": 16384 - 1024}, {"prompt_eval_count": 16000}, {"done_reason": "length"}],
+)
+def test_answer_refused_when_context_full_or_cut(tmp_path, kw):
+    path = write(tmp_path, "a.txt", "hello")
+    out = service.ask([path], "q", FakeClient(answer="partial answer", **kw), Config())
+    assert out == "error: input or answer did not fit the context"
+
+
+def test_edit_refused_when_answer_cut(tmp_path, monkeypatch):
+    _bk(tmp_path, monkeypatch)
+    path = write(tmp_path, "c.ini", "a = 1\n")
+    client = _edit_client([{"line": 1, "old": "a = 1", "new": "a = 2"}], done_reason="length")
+    called = []
+    out = service.edit(path, "x", client, Config(), lambda d, p, w: called.append(1) or True)
+    assert out == "error: input or answer did not fit the context"
+    assert not called and Path(path).read_text() == "a = 1\n"
+
+
+def _table(n):
+    return "".join(f"row {i:03d}, Main Street {i}, note text {i}\n" for i in range(n))
+
+
+def test_answer_repeating_file_refused(tmp_path):
+    text = _table(10)
+    path = write(tmp_path, "t.csv", text)
+    out = service.task([path], "repeat", FakeClient(answer="Here:\n" + text), Config())
+    assert out == "error: answer repeats the file content"
+
+
+def test_answer_with_few_repeated_lines_passes(tmp_path):
+    text = _table(10)
+    path = write(tmp_path, "t.csv", text)
+    lines = text.splitlines()
+    answer = "Rows:\n" + "\n".join(lines[:4])  # 4 of 10 lines: below 50%
+    out = service.task([path], "q", FakeClient(answer=answer), Config())
+    assert out.endswith(answer)
+
+
+def test_short_file_repeat_not_counted(tmp_path):
+    text = _table(4)  # fewer than 5 lines of 8 characters or more
+    path = write(tmp_path, "t.csv", text)
+    out = service.task([path], "repeat", FakeClient(answer=text), Config())
+    assert not out.startswith("error:")
+
+
+def test_edit_big_diff_returns_only_counts(tmp_path, monkeypatch):
+    _bk(tmp_path, monkeypatch)
+    text = _table(15)
+    path = write(tmp_path, "t.csv", text)
+    lines = text.splitlines()
+    ch = [{"line": i + 1, "old": line, "new": line + " x"} for i, line in enumerate(lines[:11])]
+    client = _edit_client(ch)
+    out = service.edit(path, "x", client, Config(), lambda d, p, w: False)
+    assert out.startswith(f"rejected: file {Path(path).resolve()} was not changed")
+    assert out.endswith("+11/-11 lines")
+    assert lines[0] not in out and lines[14] not in out
+
+
+def test_edit_small_diff_shown(tmp_path, monkeypatch):
+    _bk(tmp_path, monkeypatch)
+    text = _table(15)
+    path = write(tmp_path, "t.csv", text)
+    lines = text.splitlines()
+    ch = [{"line": i + 1, "old": line, "new": line + " x"} for i, line in enumerate(lines[:10])]
+    out = service.edit(path, "x", _edit_client(ch), Config(), lambda d, p, w: False)
+    assert "+" + lines[0] + " x" in out
+
+
+def test_edit_secret_line_sets_warning(tmp_path, monkeypatch):
+    _bk(tmp_path, monkeypatch)
+    path = write(tmp_path, "c.ini", f"region = a\ntoken = {TOKEN}\n")
+    seen = []
+    ch = [{"line": 2, "old": "token = <SECRET_1>", "new": "note = <SECRET_1>"}]
+    service.edit(path, "x", _edit_client(ch), Config(), _yes(seen))
+    assert seen[0][2] is True
+    seen = []
+    ch = [{"line": 1, "old": "region = a", "new": "region = b"}]
+    service.edit(path, "x", _edit_client(ch), Config(), _yes(seen))
+    assert seen[0][2] is False
+
+
+def test_edit_rejects_invisible_characters(tmp_path, monkeypatch):
+    _bk(tmp_path, monkeypatch)
+    path = write(tmp_path, "c.ini", "a = 1\n")
+    for bad in (chr(0x200B), chr(0x202E), chr(0x07)):
+        ch = [{"line": 1, "old": "a = 1", "new": "a = 2" + bad}]
+        called = []
+        approve = lambda d, p, w, called=called: called.append(1)
+        out = service.edit(path, "x", _edit_client(ch), Config(), approve)
+        assert out == "error: change contains invisible control characters"
+        assert not called and Path(path).read_text() == "a = 1\n"
+
+
+def test_edit_allows_tab_and_newline(tmp_path, monkeypatch):
+    _bk(tmp_path, monkeypatch)
+    path = write(tmp_path, "c.ini", "a = 1\n")
+    ch = [{"line": 1, "old": "a = 1", "new": "a =\t2\nb = 3"}]
+    out = service.edit(path, "x", _edit_client(ch), Config(), _yes([]))
+    assert out.startswith("approved")
+    assert Path(path).read_text() == "a =\t2\nb = 3\n"
+
+
+def test_unmasked_shapes_never_reach_model_or_claude(tmp_path):
+    val = "Xq7" + "!pw#" + "9z"
+    shapes = [
+        "DB_PA" + "SS=" + val,
+        "machine h.example login u pass" + "word " + val,
+        "mysql -u root -p" + val + " db",
+        "<pass" + "word>" + val + "</pass" + "word>",
+    ]
+    path = write(tmp_path, "mix.txt", "\n".join(shapes) + "\n")
+    client = FakeClient(answer="The pass" + "word is " + val + ".")
+    out = service.ask([path], "q", client, Config())
+    assert all(val not in m for m in client.messages)
+    assert val not in out
