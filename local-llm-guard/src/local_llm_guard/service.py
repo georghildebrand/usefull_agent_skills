@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from local_llm_guard.config import Config, NotLocal, check_local, update_config
+from local_llm_guard.config import Config, NotLocal, check_host, check_model, update_config
 from local_llm_guard.files import FileRefused, check_budget, load_files
 from local_llm_guard.ollama import Client, OllamaError
 from local_llm_guard.outfilter import LeakError, NameFinder, filter_output
@@ -63,14 +63,18 @@ def error_text(exc: Exception) -> str:
 def make_name_finder(client: Client) -> NameFinder:
     def find(text: str) -> list[str]:
         raw = client.chat(_NAME_SYSTEM, f"Text:\n{text}", _NAME_SCHEMA)
-        names = json.loads(raw).get("names", [])
-        return [n for n in names if isinstance(n, str)]
+        data = json.loads(raw)
+        names = data.get("names") if isinstance(data, dict) else None
+        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+            raise ValueError("bad name finder output")
+        return names
 
     return find
 
 
 def _run(paths: list[str], request: str, client: Client, cfg: Config) -> str:
-    check_local(cfg, client.list_models())
+    check_host(cfg)
+    check_model(cfg, client.list_models())
     files = load_files(paths)
     # Mask all files in one pass so the placeholders share one numbering and one mapping.
     sep = "\n\u0000FILE-BREAK\u0000\n"
@@ -107,8 +111,9 @@ def task(paths: list[str], instruction: str, client: Client, cfg: Config) -> str
 
 def status(client: Client, cfg: Config) -> str:
     try:
+        check_host(cfg)
         installed = client.list_models()
-        check_local(cfg, installed)
+        check_model(cfg, installed)
         version = client.version()
         max_ctx = client.model_max_ctx()
     except Exception as exc:  # noqa: BLE001
@@ -132,6 +137,7 @@ def configure(
 ) -> tuple[Config, str]:
     """Return (config to keep, message). On any error the old config is returned."""
     try:
+        check_host(cfg)
         installed = client.list_models()
         new = update_config(
             cfg,
@@ -141,7 +147,8 @@ def configure(
             model_max_ctx=client.model_max_ctx(),
             installed=installed,
         )
-        check_local(new, installed)
+        check_host(new)
+        check_model(new, installed)
     except Exception as exc:  # noqa: BLE001
         return cfg, error_text(exc)
     return new, f"ok: model {new.model}, num_ctx {new.num_ctx}, timeout_s {new.timeout_s}"

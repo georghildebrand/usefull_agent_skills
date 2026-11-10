@@ -10,7 +10,9 @@ TOKEN = "ghp_" + "a1" * 18
 
 
 class FakeClient:
-    def __init__(self, answer="ok", names=None, models=None, error=None):
+    def __init__(self, answer="ok", names=None, models=None, error=None, raw_names=None):
+        self.raw_names = raw_names
+        self.calls = 0
         self.answer = answer
         self.names = names or []
         self.models = models if models is not None else ["qwen2.5:14b"]
@@ -19,10 +21,13 @@ class FakeClient:
         self.chat_calls = 0
 
     def chat(self, system, user, json_schema=None):
+        self.calls += 1
         self.messages += [system, user]
         if json_schema is not None:
             import json
 
+            if self.raw_names is not None:
+                return self.raw_names
             return json.dumps({"names": self.names})
         self.chat_calls += 1
         if self.error:
@@ -30,12 +35,15 @@ class FakeClient:
         return self.answer
 
     def model_max_ctx(self):
+        self.calls += 1
         return 32768
 
     def list_models(self):
+        self.calls += 1
         return self.models
 
     def version(self):
+        self.calls += 1
         return "0.0"
 
 
@@ -154,3 +162,34 @@ def test_no_content_on_stderr(tmp_path, capsys, which):
     service.ask([path], "Summarize", FakeClient(answer=b64), Config())
     cap = capsys.readouterr()
     assert TOKEN not in getattr(cap, which)
+
+
+@pytest.mark.parametrize("raw", ['{"names": "Anna"}', '{"names": {"a": 1}}', '{"names": [1, 2]}'])
+def test_bad_name_finder_output_fails_closed(tmp_path, raw):
+    path = write(tmp_path, "a.txt", "hello")
+    client = FakeClient(answer="Anna is here", raw_names=raw)
+    assert service.ask([path], "q", client, Config()) == "error: name check failed"
+
+
+def test_remote_host_makes_no_network_call(tmp_path):
+    path = write(tmp_path, "a.txt", "hello")
+    cfg = Config(base_url="http://10.0.0.5:11434")
+    for call in (
+        lambda c: service.ask([path], "q", c, cfg),
+        lambda c: service.task([path], "q", c, cfg),
+        lambda c: service.status(c, cfg),
+        lambda c: service.configure(c, cfg, num_ctx=4096)[1],
+    ):
+        client = FakeClient()
+        assert "not a loopback address" in call(client)
+        assert client.calls == 0
+
+
+def test_same_secret_in_two_files_shares_placeholder(tmp_path):
+    a = write(tmp_path, "a.txt", f"token = {TOKEN}\n")
+    b = write(tmp_path, "b.txt", f"api_key = {TOKEN}\n")
+    client = FakeClient()
+    service.ask([a, b], "q", client, Config())
+    user = client.messages[1]
+    assert user.count("<SECRET_1>") == 2
+    assert "<SECRET_2>" not in user

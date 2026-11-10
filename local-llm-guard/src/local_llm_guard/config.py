@@ -50,15 +50,24 @@ def _is_cloud(model: str) -> bool:
     return "cloud" in model.lower()
 
 
-def check_local(cfg: Config, installed: list[str]) -> None:
+def check_host(cfg: Config) -> None:
+    """Loopback check on the URL only. Makes no network call."""
     try:
         host = urlparse(cfg.base_url).hostname
     except ValueError:
         host = None
     if host not in LOOPBACK_HOSTS:
         raise NotLocal(f"Ollama endpoint {cfg.base_url} is not a loopback address")
+
+
+def check_model(cfg: Config, installed: list[str]) -> None:
     if cfg.model not in installed or _is_cloud(cfg.model):
         raise NotLocal(f"model {cfg.model} is not a local model")
+
+
+def check_local(cfg: Config, installed: list[str]) -> None:
+    check_host(cfg)
+    check_model(cfg, installed)
 
 
 def update_config(

@@ -23,4 +23,26 @@ def test_server_registers_tools():
 
     mcp = build_server({"cfg": Config()})
     names = {t.name for t in asyncio.run(mcp.list_tools())}
-    assert {"local_ask", "local_task", "local_status", "local_config"} <= names
+    assert names == {"local_ask", "local_task", "local_status", "local_config"}
+
+
+def test_client_factory_error_is_guarded():
+    import asyncio
+
+    from local_llm_guard.config import Config
+    from local_llm_guard.server import build_server
+
+    def boom(cfg):
+        raise RuntimeError("x" + "secret")
+
+    mcp = build_server({"cfg": Config()}, client_factory=boom)
+    for name, args in [
+        ("local_ask", {"paths": ["/a"], "question": "q"}),
+        ("local_task", {"paths": ["/a"], "instruction": "q"}),
+        ("local_status", {}),
+        ("local_config", {"num_ctx": 4096}),
+    ]:
+        result = asyncio.run(mcp.call_tool(name, args))
+        text = str(result)
+        assert "internal error (RuntimeError)" in text
+        assert "xsecret" not in text
