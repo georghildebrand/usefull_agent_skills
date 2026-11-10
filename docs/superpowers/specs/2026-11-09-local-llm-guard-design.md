@@ -88,11 +88,12 @@ The answer from Qwen passes a second filter before it goes to Claude:
 
 - The secret detector again (in case a secret was not caught on input).
 - Personal data: e-mail addresses, phone numbers, IBAN-like numbers, by pattern.
-- Person names: patterns cannot find names. A second step marks them, either a local
-  named-entity library or a second Qwen call that lists person names in the answer. The
-  program then masks them.
+- Person names: patterns cannot find names. A second call to the same local Qwen model gets
+  only the answer text and returns the person names in it as JSON. The program then masks
+  them as `<NAME>`. No network call leaves the machine.
 - Business numbers (revenue, prices, quantities) stay visible. This is a deliberate choice:
-  the tool protects personal data and secrets, not business figures.
+  the tool protects personal data and secrets, not business figures. Phone numbers and IBANs
+  are still masked by pattern, even when they look like plain numbers.
 
 **Fail closed:** if any filter step fails or times out, the tool returns an error and no
 answer.
@@ -109,7 +110,10 @@ answer.
    A new line may not contain a placeholder that was not in its old line.
 6. A macOS dialog (via `osascript`) shows the user the full unmasked diff with two buttons,
    write or cancel. Claude has no way to press the button.
-7. On approval: copy the file to `<file>.bak-<timestamp>`, then write.
+7. On approval: compare the file's SHA-256 hash with the hash taken before the dialog. If
+   the file changed while the dialog was open, abort. Otherwise write a backup (see
+   "Backups" below), then write atomically: a temporary file in the same directory, then
+   rename. The file mode, line endings and trailing newline stay as they were.
 8. Claude receives the result (approved / rejected / aborted and why) and the diff with
    secrets and personal data masked.
 
@@ -122,7 +126,10 @@ local tools instead of stopping.
   the server is registered. The text says: when `sensitive-canary` blocks a file, tell the
   user in one short line which file was blocked and why, and ask whether to hand it to the
   local model. Mention the allow tag as the other option. Call `local_ask`, `local_task` or
-  `local_edit` only after the user says yes.
+  `local_edit` only after the user says yes. A yes covers that one file only. For any other
+  file, Claude asks again.
+- Files named `.env` or `.env.*` are never offered and never read. Every tool refuses them
+  before it opens the file.
 - **Asking first is the default.** A setting (environment variable in the MCP registration,
   for example `LOCAL_LLM_GUARD_AUTO=1`) switches the instructions text to "call the local tool
   directly, then report what you did". The program reads the setting at start-up.
@@ -151,8 +158,10 @@ answers, and on a single laptop that is slow and hard to get right.
 
 - Default context size (`num_ctx`): 16 384 tokens. Upper limit: the model's own maximum, read
   from Ollama at start-up (32 768 for `qwen2.5:14b`).
-- Before calling the model, the program counts the tokens of prompt plus files (an estimate is
-  fine, with a safety margin). If it does not fit, the tool refuses with a clear message: file
+- At most 5 files per call. Binary files (a NUL byte, or not valid UTF-8) are refused.
+- Before calling the model, the program estimates the tokens of prompt plus files as
+  `ceil(characters / 3)` and keeps 1 024 tokens free for the answer. This estimate is
+  conservative: it counts more tokens than the real tokenizer for normal text. If it does not fit, the tool refuses with a clear message: file
   name, estimated tokens, current limit, and the hint that `local_config` can raise the limit.
 - The same rule goes into the `instructions` text, so Claude knows the tool is for small files
   and does not hand it a large export.
@@ -169,11 +178,25 @@ file or pick another installed model.
   that `ollama list` shows), request timeout.
 - **Not changeable:** anything about masking, the output filter, the dialog, or the backup.
   These have no setting at all, so no tool call can switch them off.
-- Settings are stored in `~/.config/local-llm-guard/config.json` and survive a restart.
+- Claude calls `local_config` only after the user said yes in the same turn.
+- Changes last only for the running server process. Nothing is written to disk. At the next
+  start the defaults apply again.
+- Defaults come from environment variables in the MCP registration, set only by the user:
+  `LOCAL_LLM_GUARD_NUM_CTX`, `LOCAL_LLM_GUARD_MODEL`, `LOCAL_LLM_GUARD_TIMEOUT`. Without
+  them: 16 384 tokens, `qwen2.5:14b`, 300 seconds. No tool changes these variables or the
+  registration.
 
 Every result also states: which files were read, their size in tokens, and whether they fit
-into the context. If a file does not fit, the tool refuses (or splits the file, see below) and
-says so.
+into the context. If a file does not fit, the tool refuses and says so.
+
+### Local only
+
+- The Ollama endpoint must be a loopback address (`127.0.0.1`, `::1`, `localhost`). If
+  `OLLAMA_HOST` points anywhere else, every call is refused with that reason.
+- The model must be installed locally (`ollama list`) and must not be an Ollama cloud model
+  (for example a `-cloud` tag). The same check runs when `local_config` changes the model.
+- File content, model output and the unmasked diff never go to logs, stderr or error
+  messages.
 
 ## Decisions made by the designer (check these)
 
@@ -188,11 +211,12 @@ These were settled without the user. They can be changed.
   `dapi`, `xox`, PEM private key blocks, JWTs), or (c) it is a long random-looking string with
   high Shannon entropy. Hosts, URLs without credentials, profile names, paths and plain
   numbers stay visible. Masking too much is acceptable; masking too little is not. A URL with
-  credentials inside it (`https://user:pass@host`) has the credential part masked.
+  a user name and password before the host has the password part masked.
 - **Encoded output:** for secrets, the guarantee comes from input masking: the model never had
   the value. The output filter still normalises the answer (removes whitespace, decodes base64
   and hex fragments, checks the reversed string) and scans again. Any hit of a known secret
-  value from the input map: the whole answer is replaced by an error. For personal data, the
+  value from the input map: the whole answer is replaced by an error. Values shorter than 8
+characters are not checked in encoded form, because short strings match by chance. For personal data, the
   output filter is best effort (patterns plus the name step), not a hard guarantee.
 - **`sensitive-canary` rules:** reimplement the same categories in the program. Do not depend
   on the plugin's install path or internal file format. The test fixtures cover each category.
@@ -214,11 +238,8 @@ These were settled without the user. They can be changed.
 ## Left to the builder
 
 - MCP library (official `mcp` Python SDK or FastMCP) and the exact tool schemas.
-- Which named-entity method for person names (library vs second Qwen call), as long as it runs
-  locally and is tested.
 - How the dialog shows a long diff (dialog text field, or a temporary file opened in a viewer
   that is deleted afterwards).
-- How to estimate tokens (Ollama tokenizer call or a character-based estimate with margin).
 - Test fixtures: synthetic files with fake secrets, fake names, and an injection file that tells
   the model to print secrets encoded. The test passes when none of the fake secret values
   appears in any tool result in any encoding.
