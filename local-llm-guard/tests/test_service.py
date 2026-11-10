@@ -1,4 +1,5 @@
 import base64
+from pathlib import Path
 
 import pytest
 
@@ -193,3 +194,119 @@ def test_same_secret_in_two_files_shares_placeholder(tmp_path):
     user = client.messages[1]
     assert user.count("<SECRET_1>") == 2
     assert "<SECRET_2>" not in user
+
+
+# --- edit flow ---
+
+
+def _edit_client(changes, **kw):
+    import json
+
+    client = FakeClient(**kw)
+    real_chat = client.chat
+
+    def chat(system, user, json_schema=None):
+        if json_schema is not None and "changes" in json_schema.get("properties", {}):
+            client.messages += [system, user]
+            return json.dumps({"changes": changes})
+        return real_chat(system, user, json_schema)
+
+    client.chat = chat
+    return client
+
+
+def _bk(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    return tmp_path / "home" / ".local" / "state" / "local-llm-guard" / "backups"
+
+
+def _yes(seen):
+    return lambda d, p: seen.append((d, p)) or True
+
+
+def test_edit_approved(tmp_path, monkeypatch):
+    bk = _bk(tmp_path, monkeypatch)
+    path = write(tmp_path, "c.ini", f"region = a\ntoken = {TOKEN}\n")
+    ch = [{"line": 1, "old": "region = a", "new": "region = b"}]
+    client = _edit_client(ch)
+    seen = []
+    out = service.edit(path, "change region", client, Config(), _yes(seen))
+    assert Path(path).read_text() == f"region = b\ntoken = {TOKEN}\n"
+    assert len(list(bk.iterdir())) == 1
+    assert out.startswith("approved")
+    assert TOKEN not in out and "-region = a" in out
+    assert all(TOKEN not in m for m in client.messages)
+    assert seen[0][1] == path
+
+
+def test_edit_result_has_no_secret_or_name(tmp_path, monkeypatch):
+    _bk(tmp_path, monkeypatch)
+    name = "Anna " + "Schmidt"
+    path = write(tmp_path, "c.ini", f"owner = {name}\ntoken = {TOKEN}\n")
+    ch = [{"line": 2, "old": "token = <SECRET_1>", "new": "api_token = <SECRET_1>"}]
+    client = _edit_client(ch, names=[name])
+    seen = []
+    out = service.edit(path, "x", client, Config(), _yes(seen))
+    assert TOKEN not in out and name not in out
+    assert TOKEN in seen[0][0]  # the approver sees the real diff
+    assert Path(path).read_text() == f"owner = {name}\napi_token = {TOKEN}\n"
+
+
+def test_edit_rejected(tmp_path, monkeypatch):
+    bk = _bk(tmp_path, monkeypatch)
+    path = write(tmp_path, "c.ini", "a = 1\n")
+    client = _edit_client([{"line": 1, "old": "a = 1", "new": "a = 2"}])
+    out = service.edit(path, "x", client, Config(), lambda d, p: False)
+    assert out.startswith("rejected")
+    assert Path(path).read_text() == "a = 1\n"
+    assert not bk.exists() or not list(bk.iterdir())
+
+
+def test_edit_file_changed_while_waiting(tmp_path, monkeypatch):
+    bk = _bk(tmp_path, monkeypatch)
+    path = write(tmp_path, "c.ini", "a = 1\n")
+    client = _edit_client([{"line": 1, "old": "a = 1", "new": "a = 2"}])
+
+    def approver(d, p):
+        Path(p).write_text("a = 1\n# edited by user\n")
+        return True
+
+    out = service.edit(path, "x", client, Config(), approver)
+    assert out == "error: file changed while waiting for approval"
+    assert Path(path).read_text() == "a = 1\n# edited by user\n"
+    assert not bk.exists() or not list(bk.iterdir())
+
+
+def test_edit_keeps_mode(tmp_path, monkeypatch):
+    import os
+
+    _bk(tmp_path, monkeypatch)
+    path = write(tmp_path, "c.ini", "a = 1\n")
+    os.chmod(path, 0o640)
+    client = _edit_client([{"line": 1, "old": "a = 1", "new": "a = 2"}])
+    service.edit(path, "x", client, Config(), _yes([]))
+    assert os.stat(path).st_mode & 0o777 == 0o640
+    assert Path(path).read_text() == "a = 2\n"
+    assert [p.name for p in tmp_path.iterdir() if p.name != "home"] == ["c.ini"]
+
+
+def test_edit_bad_proposal_message_has_no_content(tmp_path, monkeypatch):
+    _bk(tmp_path, monkeypatch)
+    path = write(tmp_path, "c.ini", f"token = {TOKEN}\n")
+    client = _edit_client([{"line": 1, "old": "token = <SECRET_1>", "new": "token = x"}])
+    called = []
+    out = service.edit(path, "x", client, Config(), lambda d, p: called.append(1) or True)
+    assert out.startswith("error:") and "line 1" in out
+    assert TOKEN not in out and not called
+    assert Path(path).read_text() == f"token = {TOKEN}\n"
+
+
+def test_edit_checks_run_before_model(tmp_path):
+    path = write(tmp_path, "c.ini", "a\n")
+    client = _edit_client([])
+    bad = Config(base_url="http://10.0.0.5:11434")
+    out = service.edit(path, "x", client, bad, _yes([]))
+    assert "not a loopback address" in out and client.calls == 0
+    env = str(tmp_path / (".en" + "v"))
+    out = service.edit(env, "x", _edit_client([]), Config(), _yes([]))
+    assert out == "error: .env files are never read"

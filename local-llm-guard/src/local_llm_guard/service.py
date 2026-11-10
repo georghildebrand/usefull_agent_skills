@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import json
 
+from local_llm_guard.approval import Approver, ask_approval
 from local_llm_guard.config import Config, NotLocal, check_host, check_model, update_config
+from local_llm_guard.edit import EditRejected
+from local_llm_guard.edit import edit as run_edit
 from local_llm_guard.files import FileRefused, check_budget, load_files
 from local_llm_guard.ollama import Client, OllamaError
 from local_llm_guard.outfilter import LeakError, NameFinder, filter_output
 from local_llm_guard.secrets import mask_secrets
 
-_KNOWN = (FileRefused, OllamaError, LeakError, NotLocal)
+_KNOWN = (FileRefused, OllamaError, LeakError, NotLocal, EditRejected)
 
 _SYSTEM = (
     "You work on the files given by the user. Do the task using only these files. "
@@ -105,6 +108,19 @@ def ask(paths: list[str], question: str, client: Client, cfg: Config) -> str:
 def task(paths: list[str], instruction: str, client: Client, cfg: Config) -> str:
     try:
         return _run(paths, instruction, client, cfg)
+    except Exception as exc:  # noqa: BLE001 - fail closed
+        return error_text(exc)
+
+
+def edit(
+    path: str,
+    instruction: str,
+    client: Client,
+    cfg: Config,
+    approve: Approver = ask_approval,
+) -> str:
+    try:
+        return run_edit(path, instruction, client, cfg, approve)
     except Exception as exc:  # noqa: BLE001 - fail closed
         return error_text(exc)
 

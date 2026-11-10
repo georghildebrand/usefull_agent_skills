@@ -23,7 +23,7 @@ def test_server_registers_tools():
 
     mcp = build_server({"cfg": Config()})
     names = {t.name for t in asyncio.run(mcp.list_tools())}
-    assert names == {"local_ask", "local_task", "local_status", "local_config"}
+    assert names == {"local_ask", "local_task", "local_status", "local_config", "local_edit"}
 
 
 def test_client_factory_error_is_guarded():
@@ -39,6 +39,7 @@ def test_client_factory_error_is_guarded():
     for name, args in [
         ("local_ask", {"paths": ["/a"], "question": "q"}),
         ("local_task", {"paths": ["/a"], "instruction": "q"}),
+        ("local_edit", {"path": "/a", "instruction": "q"}),
         ("local_status", {}),
         ("local_config", {"num_ctx": 4096}),
     ]:

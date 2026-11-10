@@ -8,6 +8,7 @@ from collections.abc import Callable
 from mcp.server.mcpserver import MCPServer
 
 from local_llm_guard import service
+from local_llm_guard.backup import prune_backups
 from local_llm_guard.config import Config, config_from_env
 from local_llm_guard.ollama import Client, OllamaClient
 
@@ -52,6 +53,18 @@ def build_server(
             return service.error_text(exc)
 
     @mcp.tool()
+    def local_edit(path: str, instruction: str) -> str:
+        """Edit one text file with a local model after the user approves the diff.
+
+        The user sees the real diff in a dialog and must click Write. Path must be absolute.
+        Returns approved or rejected plus a filtered diff.
+        """
+        try:
+            return service.edit(path, instruction, client(), holder["cfg"])
+        except Exception as exc:  # noqa: BLE001
+            return service.error_text(exc)
+
+    @mcp.tool()
     def local_status() -> str:
         """Show the local model, context size and Ollama status."""
         try:
@@ -77,6 +90,7 @@ def build_server(
 
 
 def main() -> None:
+    prune_backups()
     build_server({"cfg": config_from_env(os.environ)}).run("stdio")
 
 
