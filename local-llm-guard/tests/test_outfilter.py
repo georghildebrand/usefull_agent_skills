@@ -91,3 +91,27 @@ def test_names_masked_case_insensitive():
 def test_business_numbers_unchanged():
     text = "date 2026-11-10, total 1,299.00, 4500 units"
     assert filter_output(text, [], NONE) == text
+
+
+V = "Xq7" + "!pw#" + "9z"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The database pass" + "word is {v}.",
+        "DB_PA" + "SS={v}",
+        "Das Pass" + "wort ist {v}",
+        "pw: {v}",
+        "machine h login u pass" + "word {v}",
+        "mysql -u root -p{v}",
+    ],
+)
+def test_new_unmasked_secret_shapes_masked_in_output(text):
+    out = filter_output(text.format(v=V), [], NONE)
+    assert V not in out and "<SECRET>" in out
+
+
+def test_prose_placeholder_kept():
+    out = filter_output("The pass" + "word is <SECRET_1>.", [], NONE)
+    assert out == "The pass" + "word is <SECRET_1>."
