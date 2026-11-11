@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Open the reader window with a short text. The window plays the sound; closing it stops the sound.
+#
+#   stand-speak --session "<label>" <<'TEXT'
+#   First sentence.
+#   Second sentence.
+#   TEXT
+#
+#   stand-speak --stop    close the window, sound ends
+#   stand-speak --check   show output device and TTS state, no sound
+#
+# Settings (environment): STAND_ENGINE=auto|qwen|system, STAND_TTS_URL, STAND_TTS_MODEL,
+# STAND_TTS_VOICE, STAND_SYSTEM_LANG, STAND_SYSTEM_VOICE, STAND_APP (path of the .app).
+# Persistent settings: put the same variables in ~/.config/stand-speak.conf (shell syntax).
+set -euo pipefail
+
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/stand-speak.conf"
+# shellcheck disable=SC1090
+[ -f "$CONF" ] && . "$CONF"
+
+APP="${STAND_APP:-$HOME/Applications/Sitzungsstand.app}"
+BIN="$APP/Contents/MacOS/Sitzungsstand"
+DIR="${XDG_CACHE_HOME:-$HOME/.cache}/sitzungsstand"
+
+stop() { pkill -x Sitzungsstand 2>/dev/null || true; }
+
+case "${1:-}" in
+  --stop)  stop; exit 0 ;;
+  --check) exec "$BIN" --check ;;
+esac
+
+SESSION="unbekannt"
+if [ "${1:-}" = "--session" ]; then SESSION="${2:-unbekannt}"; fi
+
+mkdir -p "$DIR"
+FILE="$DIR/text-$(date +%Y%m%d-%H%M%S).txt"
+cat > "$FILE"
+if [ ! -s "$FILE" ]; then echo "stand-speak: no text on stdin" >&2; rm -f "$FILE"; exit 2; fi
+
+ARGS=(--file "$FILE" --session "$SESSION" --engine "${STAND_ENGINE:-auto}")
+[ -n "${STAND_TTS_URL:-}" ]     && ARGS+=(--tts-url "$STAND_TTS_URL")
+[ -n "${STAND_TTS_MODEL:-}" ]   && ARGS+=(--tts-model "$STAND_TTS_MODEL")
+[ -n "${STAND_TTS_VOICE:-}" ]   && ARGS+=(--tts-voice "$STAND_TTS_VOICE")
+[ -n "${STAND_SYSTEM_LANG:-}" ] && ARGS+=(--system-lang "$STAND_SYSTEM_LANG")
+[ -n "${STAND_SYSTEM_VOICE:-}" ] && ARGS+=(--system-voice "$STAND_SYSTEM_VOICE")
+
+stop   # only one window at a time
+# open: launchd starts the app, so it does not depend on the calling shell or agent.
+open -n "$APP" --args "${ARGS[@]}"
+
+# keep the last 20 texts
+ls -1t "$DIR"/text-*.txt 2>/dev/null | tail -n +21 | while read -r f; do rm -f "$f"; done
+echo "reader window opened"
