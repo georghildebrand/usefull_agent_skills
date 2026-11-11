@@ -37,6 +37,7 @@ claude mcp remove --scope user voicemode >/dev/null 2>&1 || true
 claude mcp add --scope user voicemode \
   -e VOICEMODE_TTS_BASE_URLS=http://127.0.0.1:8890/v1 \
   -e VOICEMODE_STT_BASE_URLS=http://127.0.0.1:2022/v1 \
+  -e VOICEMODE_CONTROL_CHANNEL_ENABLED=true \
   ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"} \
   -- uv run --directory "$REPO" voicemode
 claude mcp get voicemode

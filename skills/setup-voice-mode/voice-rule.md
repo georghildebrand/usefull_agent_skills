@@ -33,6 +33,12 @@ the exact spelling. Do not speak because the phrase appears inside a normal sent
   full sentences. No terse or telegraphic style, even when such a mode is on.
 - Never speak code, paths, commands, tables, URLs or IDs. Those stay in the text.
 - Speak after the text answer is written, as the last step of the turn.
+- Before every spoken answer, run `test -e "$HOME/.voicemode/MUTE" && echo muted`. If it prints
+  `muted`, do not speak and do not mention it. The flag is set by the kill switch (`voice off`, see
+  `SKILL.md`).
+- If `converse` returns a text that starts with `[control: stop]`, the user cut the speech on
+  purpose. Continue in text. Do not speak again in this session until the user says a trigger word
+  again.
 - If the `converse` tool is missing or fails, say so in one line of text and continue. Do not retry,
   and do not install or start services to fix it.
 

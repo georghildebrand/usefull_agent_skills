@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# voice: kill switch for spoken answers (voicemode MCP servers + local mlx-audio).
+#
+#   voice stop     cut the sentence that is spoken right now (needs the control channel)
+#   voice off      cut it and block all speech: mute flag + TTS service stopped
+#   voice kill     off, and end every voicemode MCP server process (panic button)
+#   voice on       remove the mute flag, start the TTS service, warm the model
+#   voice status   show what is on
+set -u
+
+LABEL=com.voicemode.mlx-audio
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+DOMAIN="gui/$(id -u)"
+SOCK="${VOICEMODE_CONTROL_SOCKET:-$HOME/.voicemode/control.sock}"
+MUTE="$HOME/.voicemode/MUTE"
+REPO="${VOICEMODE_REPO:-$HOME/src/voicemode}"   # set VOICEMODE_REPO to your reviewed checkout
+URL=http://127.0.0.1:8890/v1
+MODEL="${VOICE_MODEL:-mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16}"
+VOICE="${VOICE_NAME:-Ryan}"
+
+service_loaded() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
+server_pids() { pgrep -f "$REPO/.venv/bin/voicemode" || true; }
+
+cut_now() {
+  if [ -S "$SOCK" ]; then
+    printf '%s\n' '{"command":"stop","hint":"quiet"}' | nc -U -w 2 "$SOCK" && echo "stop sent"
+  else
+    echo "no control socket: nothing is speaking, or the control channel is not enabled"
+  fi
+}
+
+cmd_off() {
+  cut_now
+  mkdir -p "$(dirname "$MUTE")"
+  : > "$MUTE"
+  if service_loaded; then
+    launchctl bootout "$DOMAIN/$LABEL" && echo "TTS service stopped"
+  else
+    echo "TTS service was not running"
+  fi
+  echo "voice is OFF"
+}
+
+cmd_kill() {
+  cmd_off
+  count=$(server_pids | wc -l | tr -d ' ')
+  pkill -f "$REPO/.venv/bin/voicemode" || true
+  echo "ended $count voicemode server process(es); sessions need /mcp reconnect"
+}
+
+cmd_on() {
+  rm -f "$MUTE"
+  service_loaded || launchctl bootstrap "$DOMAIN" "$PLIST"
+  for _ in $(seq 1 30); do
+    curl -s -m 2 -o /dev/null "$URL/models" && break
+    sleep 2
+  done
+  echo "warming the model (can take up to a minute) ..."
+  curl -s -m 300 -o /dev/null -w 'warm-up: http %{http_code} in %{time_total}s\n' \
+    "$URL/audio/speech" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"voice\":\"$VOICE\",\"input\":\"Test.\",\"lang_code\":\"german\",\"response_format\":\"wav\"}"
+  echo "voice is ON"
+}
+
+cmd_status() {
+  if [ -e "$MUTE" ]; then echo "mute flag:     SET"; else echo "mute flag:     not set"; fi
+  if service_loaded; then echo "TTS service:   loaded"; else echo "TTS service:   not loaded"; fi
+  if curl -s -m 2 -o /dev/null "$URL/models"; then echo "TTS answers:   yes"; else echo "TTS answers:   no"; fi
+  echo "MCP servers:   $(server_pids | wc -l | tr -d ' ') running (one per open Claude session)"
+  if [ -S "$SOCK" ]; then echo "control sock:  present (something is speaking now)"; else echo "control sock:  absent (nothing speaking)"; fi
+}
+
+case "${1:-}" in
+  stop)   cut_now ;;
+  off)    cmd_off ;;
+  kill)   cmd_kill ;;
+  on)     cmd_on ;;
+  status) cmd_status ;;
+  *)      sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

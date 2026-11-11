@@ -53,10 +53,12 @@ Set both lists to local addresses so text never goes to a cloud service by accid
 claude mcp add --scope user voicemode \
   -e VOICEMODE_TTS_BASE_URLS=http://127.0.0.1:8890/v1 \
   -e VOICEMODE_STT_BASE_URLS=http://127.0.0.1:2022/v1 \
+  -e VOICEMODE_CONTROL_CHANNEL_ENABLED=true \
   -- uv run --directory <clone> voicemode
 ```
 
 Nothing listens on the STT address on purpose. Without that line voicemode falls back to OpenAI.
+The last variable turns on the control socket that the [kill switch](#kill-switch) uses.
 
 ## Do not install the plugin
 
@@ -99,10 +101,40 @@ from the text, so no language patch is needed.
 
 Not suitable: Voxtral TTS (non-commercial licence) and KugelAudio (about 17 GB).
 
+## Kill switch
+
+Several sessions can speak at the same time: every open Claude session starts its own voicemode
+server process (13 were running at once on one machine). When one of them speaks in a meeting, you
+often cannot tell which window it is. So the switch must work from a shell, without the agent.
+
+Install [scripts/voice](scripts/voice) as `~/.local/bin/voice` (`chmod +x`):
+
+| Command | Effect |
+|---|---|
+| `voice stop` | Cut the sentence spoken now. Uses voicemode's control socket (`~/.voicemode/control.sock`, one JSON line, `{"command":"stop","hint":"quiet"}`). Needs `VOICEMODE_CONTROL_CHANNEL_ENABLED=true` in the MCP registration; only sessions started after that have it. |
+| `voice off` | `stop`, then set the mute flag `~/.voicemode/MUTE` and unload the TTS launchd service. Nothing can speak. |
+| `voice kill` | `off`, then end every voicemode server process. Sessions need `/mcp` reconnect. Use it when `stop` has no effect, for example in sessions that were started before the channel was enabled. |
+| `voice on` | Remove the flag, load the service, send one short request to warm the model. |
+| `voice status` | Show flag, service, number of server processes, control socket. |
+
+Why unload the service and not only stop it: the launchd plist has `KeepAlive`, so a killed service
+restarts at once. `launchctl bootout` removes the job until `voice on` loads it again.
+
+The rule file adds a soft layer: Claude checks the mute flag before each spoken answer, and after a
+`[control: stop]` result it stays in text. The hard layer is the stopped service, because it does not
+depend on the agent following a rule.
+
+Bind `voice off` to a hotkey (Shortcuts, Raycast, BetterTouchTool) so it is one key press.
+
+Untested: `voice off`, `voice kill` and `voice on` have not been run end to end. Try them once when
+nobody is waiting for sound.
+
 ## Pitfalls
 
 | Pitfall | What happens | Fix |
 |---|---|---|
+| Speech starts long after the text answer | With Qwen3 the whole answer is generated first. One logged answer took 46.9 s to start and 35 s to play; you may already be in another window or a meeting | Keep spoken text to 1 or 2 sentences; consider requesting streaming (the clone path of voicemode already sends `stream: true`, the normal path does not) |
+| Many open sessions | Each one has its own server and can speak | Use `voice off` instead of looking for the window |
 | First request downloads the model | voicemode stops waiting after about 48 s, the first call fails with "All TTS attempts failed" | Warm the model once with `curl` against `http://127.0.0.1:8890/v1/audio/speech` and wait, or call again |
 | `converse` default `wait_for_response=true` | A plain `message=` call opens the microphone | Always use `turns` with `say` only |
 | Whole answer is generated before playback | With Qwen3 the sound starts a few seconds late | Keep spoken text short; the rule file asks for 2 to 4 sentences |
