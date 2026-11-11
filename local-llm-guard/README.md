@@ -50,10 +50,23 @@ claude mcp add --scope user -e LOCAL_LLM_GUARD_AUTO=1 local-llm-guard -- uv run 
 
 The server sends instructions to Claude Code. When the `sensitive-canary` hook blocks a read, or you say a file holds customer or personal data, Claude Code:
 
-1. Tells you in one line which file was blocked and asks if it may hand the file to the local model. (With `LOCAL_LLM_GUARD_AUTO=1` it calls the tool directly and tells you afterwards.)
-2. Calls one of the tools below.
+1. Tells you in one line which file was blocked and asks if it may hand the file to the local model. (With `LOCAL_LLM_GUARD_AUTO=1` it skips the question.)
+2. Prints one command line for you to run with `!`, then stops and waits. See the next section.
 
 A "yes" covers one file only.
+
+## Use without MCP (when sensitive-canary blocks the tool call)
+
+The `sensitive-canary` hook also blocks the MCP tool calls, because the path of the blocked file is in the tool input. So Claude Code prints a command, and you run it yourself with `!` in Claude Code:
+
+```bash
+! uv run --directory <this folder> local-llm-guard ask '/abs/path/file.txt' -q 'Which port is used?'
+! uv run --directory <this folder> local-llm-guard task '/abs/path/file.txt' -i 'Summarize the settings'
+! uv run --directory <this folder> local-llm-guard edit '/abs/path/file.txt' -i 'Change the port to 9090'
+! uv run --directory <this folder> local-llm-guard status
+```
+
+A `!` command runs as you, outside the PreToolUse hook. Only the filtered answer goes into the chat. The command uses the same checks, masking and output filter as the tools, and `edit` shows the same approval dialog. When something fails, the result starts with `error:` and the exit code is 1. `local-llm-guard serve`, or no argument, starts the MCP server.
 
 ## Tools
 

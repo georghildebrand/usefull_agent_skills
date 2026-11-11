@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from pathlib import Path
 
 from local_llm_guard.approval import Approver, ask_approval
 from local_llm_guard.config import (
@@ -51,23 +52,41 @@ Small files only (at most 5 files per call). If a tool says a file does not fit,
 Never try to read a blocked file in another way.
 """
 
+_COMMAND_RULES = (
+    "Do not call local_ask, local_task or local_edit on a blocked file: the canary blocks "
+    "those calls too, so do not retry the blocked call. Print ONE line with the exact "
+    "command for the user to run, then stop and wait for the user's next message. The "
+    "command runs as the user, outside the hook, and only the filtered answer lands in the "
+    "chat. Formats:\n"
+    "! uv run --directory {pkg} local-llm-guard ask '<abs path>' -q '<question>'\n"
+    "! uv run --directory {pkg} local-llm-guard task '<abs path>' -i '<instruction>'\n"
+    "! uv run --directory {pkg} local-llm-guard edit '<abs path>' -i '<instruction>'\n"
+    "Quote paths and text with single quotes. Escape a single quote inside the text as "
+    "'\\''. ask and task take up to 5 paths."
+)
 _STEPS_ASK = (
     "1. Tell the user in one short line which file was blocked and why, and ask whether to "
     "hand it to the local model. Mention the allow tags ([allow-secret], [allow-pii], "
     "[allow-all]) as the other option.\n"
-    "2. Call local_ask, local_task or local_edit only after the user says yes. A yes covers "
-    "that one file only; ask again for any other file."
+    "2. Print the command only after the user says yes. A yes covers that one file only; "
+    "ask again for any other file. " + _COMMAND_RULES
 )
 _STEPS_DIRECT = (
-    "1. Call local_ask, local_task or local_edit directly. Then tell the user in one line "
-    "which file you handed over and why."
+    "1. Do not ask first. Print the command directly and add one line saying which file "
+    "you hand over and why. " + _COMMAND_RULES
 )
+
+
+def package_dir() -> str:
+    """Absolute package directory, computed from this module's location."""
+    return str(Path(__file__).resolve().parents[2])
 
 
 def instructions_text(auto: bool) -> str:
-    if auto:
-        return _INSTRUCTIONS.format(steps=_STEPS_DIRECT, only="only if")
-    return _INSTRUCTIONS.format(steps=_STEPS_ASK, only="only after")
+    steps = (_STEPS_DIRECT if auto else _STEPS_ASK).replace("{pkg}", package_dir())
+    return _INSTRUCTIONS.replace("{steps}", steps).replace(
+        "{only}", "only if" if auto else "only after"
+    )
 
 
 def error_text(exc: Exception) -> str:

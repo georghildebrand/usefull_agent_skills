@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = ["mcp>=2.3", "httpx2>=2.16"]
 
 [project.scripts]
-local-llm-guard = "local_llm_guard.server:main"
+local-llm-guard = "local_llm_guard.cli:run"
 
 [dependency-groups]
 dev = ["pytest", "ruff"]

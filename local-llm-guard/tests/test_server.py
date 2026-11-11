@@ -5,12 +5,13 @@ def test_ask_first_text():
     t = instructions_text(False)
     assert "only after the user says yes" in t
     assert "that one file only" in t
+    assert "Do not call local_ask" in t
     assert ".env" in t
 
 
 def test_direct_text():
     t = instructions_text(True)
-    assert "directly" in t
+    assert "Do not ask first" in t
     assert "only after" not in t
     assert ".env" in t
 
