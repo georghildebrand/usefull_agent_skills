@@ -69,8 +69,8 @@ A "yes" covers one file only.
 
 1. The model proposes a list of changes.
 2. The list is checked against the file.
-3. A dialog shows the file name, the full path and the real diff. If a change touches a line that holds a secret value, the first line of the dialog says: `Warning: this change touches a line with a secret value.`
-4. Cancel is the default button. If you do not answer in 120 seconds, this counts as Cancel.
+3. A dialog asks `local-llm-guard: approve change to <file name>?`. It says that Claude wants to change a file and that only you can approve it. It names the process that asked (the server and the Claude Code process that started it). It shows the full path, how many lines are removed and added, and the real diff (without the `---` and `+++` header lines). If a change touches a line that holds a secret value, the first line of the dialog says: `[Warning: this change touches a line with a secret value.]`
+4. The buttons are Write (save, a backup is made first) and Cancel (default, change nothing). If you do not answer in 120 seconds, this counts as Cancel.
 5. The file hash is checked again, to see that the file did not change meanwhile.
 6. A backup is written.
 7. The file is replaced in one atomic write.

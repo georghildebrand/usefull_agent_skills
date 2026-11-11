@@ -15,7 +15,7 @@ Approver = Callable[[str, str, bool], bool]  # (real diff, path, touches a secre
 MAX_DIALOG_LINES = 60
 MAX_DIALOG_CHARS = 4000
 MAX_DIALOG_LINE_LEN = 200
-SECRET_LINE_WARNING = "Warning: this change touches a line with a secret value."
+SECRET_LINE_WARNING = "[Warning: this change touches a line with a secret value.]"
 
 
 def _esc(text: str) -> str:
@@ -27,11 +27,96 @@ def _tmp_dir() -> Path:
 
 
 def build_script(text: str, name: str, timeout_s: int) -> str:
-    title = _esc(f"local-llm-guard: change to {name}")
+    title = _esc(f"local-llm-guard: approve change to {name}?")
     return (
         f'display dialog "{_esc(text)}" with title "{title}" '
         f'buttons {{"Cancel", "Write"}} default button "Cancel" '
         f"giving up after {int(timeout_s)}"
+    )
+
+
+def _count_changes(diff: str) -> tuple[int, int]:
+    """Removed and added lines, counted only after the first @@ line."""
+    removed = added = 0
+    in_hunks = False
+    for line in diff.splitlines():
+        if not in_hunks:
+            in_hunks = line.startswith("@@")
+            continue
+        if line.startswith("-"):
+            removed += 1
+        elif line.startswith("+"):
+            added += 1
+    return removed, added
+
+
+def _without_headers(diff: str) -> str:
+    lines = diff.splitlines()
+    if len(lines) >= 2 and lines[0].startswith("--- ") and lines[1].startswith("+++ "):
+        lines = lines[2:]
+    return "\n".join(lines)
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def _ps(pid: int) -> tuple[int, str] | None:
+    """(parent pid, command name) of a process, or None."""
+    proc = subprocess.run(
+        ["ps", "-o", "ppid=,comm=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        timeout=2,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    parts = (proc.stdout or "").strip().split(None, 1)
+    if len(parts) != 2 or not parts[0].isdigit():
+        return None
+    return int(parts[0]), os.path.basename(parts[1].strip())
+
+
+def _requester_line() -> str:
+    own = f"Request from: local-llm-guard (MCP server, process {os.getpid()})"
+    try:
+        pid = os.getppid()
+        first: tuple[int, str] | None = None  # (pid, name) of the immediate parent
+        for _ in range(4):
+            info = _ps(pid)
+            if info is None:
+                break
+            ppid, name = info
+            if first is None:
+                first = (pid, name)
+            if "claude" in name.lower():
+                return f"{own}, started by {name} (process {pid})"
+            pid = ppid
+        if first is None:
+            return own
+        return f"{own}, started by {first[1]} (process {first[0]})"
+    except (OSError, ValueError, subprocess.SubprocessError):  # label never breaks approval
+        return own
+
+
+def _intro(path: str, diff: str) -> str:
+    removed, added = _count_changes(diff)
+    return (
+        "Claude wants to change a file on your Mac.\n"
+        "Only you can approve it. Claude cannot press these buttons.\n\n"
+        f"{_requester_line()}\n\n"
+        f"File:   {path}\n"
+        f"Change: {_plural(removed, 'line')} removed, {_plural(added, 'line')} added\n"
+        'Lines starting with "-" are removed, lines starting with "+" are added.\n\n'
+    )
+
+
+def _outro(timeout_s: int) -> str:
+    return (
+        "\n\nWrite  = save this change. A backup is made first.\n"
+        "Cancel = change nothing. "
+        f"No answer within {int(timeout_s)} seconds counts as Cancel."
     )
 
 
@@ -47,11 +132,11 @@ def fits_dialog(diff: str) -> bool:
 def ask_approval(diff: str, path: str, warning: bool = False, timeout_s: int = 120) -> bool:
     if sys.platform != "darwin":
         return False
-    text = (SECRET_LINE_WARNING + "\n\n" if warning else "") + f"File: {path}\n\n"
+    text = (SECRET_LINE_WARNING + "\n\n" if warning else "") + _intro(path, diff)
     tmp: Path | None = None
     try:
         if fits_dialog(diff):
-            text += diff
+            text += _without_headers(diff)
         else:
             d = _tmp_dir()
             d.mkdir(parents=True, exist_ok=True)
@@ -65,7 +150,8 @@ def ask_approval(diff: str, path: str, warning: bool = False, timeout_s: int = 1
             )
             if opened.returncode != 0:
                 return False  # the user could not see the diff, so no dialog
-            text += "The diff is long. The full diff is open in TextEdit."
+            text += "The change is long. The full change is open in TextEdit."
+        text += _outro(timeout_s)
         script = build_script(text, Path(path).name, timeout_s)
         proc = subprocess.run(
             ["osascript", "-e", script],
