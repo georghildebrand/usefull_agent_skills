@@ -20,7 +20,13 @@ from local_llm_guard.config import (
 )
 from local_llm_guard.edit import EditRejected
 from local_llm_guard.edit import edit as run_edit
-from local_llm_guard.files import FileRefused, check_budget, load_files
+from local_llm_guard.files import (
+    FileRefused,
+    check_budget,
+    estimate_tokens,
+    load_files,
+    typical_tokens,
+)
 from local_llm_guard.ollama import Client, OllamaError, checked_text
 from local_llm_guard.outfilter import LeakError, NameFinder, filter_output
 from local_llm_guard.secrets import mask_secrets
@@ -171,11 +177,18 @@ def _run(paths: list[str], request: str, client: Client, cfg: Config, stats: dic
     user = "\n\n".join(blocks) + f"\n\nTask:\n{request}"
     prompt = _SYSTEM + "\n" + user
     check_budget(files, prompt, cfg.num_ctx)
+    # Numbers for the usage log, so a fit error can be traced to the check that raised it.
+    stats.update(
+        stage="answer",
+        prompt_estimate=estimate_tokens(prompt),
+        prompt_guess=typical_tokens(prompt),
+    )
     result = client.chat(_SYSTEM, user)
-    stats["prompt_tokens"] = result.prompt_eval_count
+    stats.update(prompt_tokens=result.prompt_eval_count, done_reason=result.done_reason)
     answer = checked_text(result, cfg.num_ctx, prompt)
     if repeats_files(answer, masked_parts):
         raise LeakError(REPEAT_ERROR)
+    stats["stage"] = "filter"
     safe = filter_output(answer, mapping.values(), make_name_finder(client, cfg.num_ctx))
     header = "\n".join(f"file: {f.path} (~{f.tokens} tokens, fits)" for f in files)
     return f"{header}\n\n{safe}"

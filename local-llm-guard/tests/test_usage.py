@@ -119,3 +119,18 @@ def test_read_entries_skips_bad_lines_and_filters_days(usage_log):
     )
     assert [r["tool"] for r in usage.read_entries(usage_log)] == ["ask", "task"]
     assert [r["tool"] for r in usage.read_entries(usage_log, days=7)] == ["task"]
+
+
+def test_fit_error_logs_the_numbers_behind_it(tmp_path, usage_log):
+    path = write(tmp_path, "a.txt", "word " * 200)
+    client = FakeClient(answer="x", done_reason="length", prompt_eval_count=50)
+    service.ask([path], "q", client, Config())
+    (row,) = _entries(usage_log)
+    assert row["outcome"] == "error" and row["stage"] == "answer"
+    assert row["done_reason"] == "length" and row["prompt_tokens"] == 50
+    assert row["prompt_estimate"] >= row["prompt_guess"] > 0
+
+
+def test_success_ends_in_filter_stage(tmp_path, usage_log):
+    service.ask([write(tmp_path, "a.txt", "port 8080\n")], "q", FakeClient(answer="8080"), Config())
+    assert _entries(usage_log)[0]["stage"] == "filter"
