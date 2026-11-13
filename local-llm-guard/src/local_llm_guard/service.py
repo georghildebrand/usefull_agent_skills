@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
+from local_llm_guard import usage
 from local_llm_guard.approval import Approver, ask_approval
 from local_llm_guard.config import (
     Config,
@@ -124,14 +127,40 @@ def repeats_files(answer: str, texts: list[str]) -> bool:
     return 2 * hits >= len(lines)
 
 
-def _run(paths: list[str], request: str, client: Client, cfg: Config) -> str:
+def _logged(tool: str, cfg: Config, paths: list[str], work: Callable[[dict], str]) -> str:
+    """Run one tool call and write one usage line. Never logs text, only metadata."""
+    stats: dict = {"files": [{"path": str(p)} for p in paths]}
+    start = time.monotonic()
+    try:
+        text = work(stats)
+    except Exception as exc:  # noqa: BLE001 - fail closed
+        text = error_text(exc)
+    outcome = usage.outcome_of(text)
+    usage.record(
+        {
+            "tool": tool,
+            "outcome": outcome,
+            "error": text[len("error: ") :] if outcome == "error" else None,
+            "duration_s": round(time.monotonic() - start, 2),
+            "model": stats.pop("model", cfg.model),
+            "num_ctx": stats.pop("num_ctx", cfg.num_ctx),
+            **stats,
+            "masks": usage.count_masks(text) if outcome != "error" else {},
+        }
+    )
+    return text
+
+
+def _run(paths: list[str], request: str, client: Client, cfg: Config, stats: dict) -> str:
     check_host(cfg)
     check_model(cfg, client.list_models())
     files = load_files(paths)
+    stats["files"] = [{"path": str(f.path), "tokens": f.tokens} for f in files]
     # Mask all files in one pass so the placeholders share one numbering and one mapping.
     sep = "\n\u0000FILE-BREAK\u0000\n"
     masked_all = mask_secrets(sep.join(f.text for f in files))
     mapping = masked_all.mapping
+    stats["secrets_masked"] = len(mapping)
     masked_parts = masked_all.masked.split(sep)
     if len(masked_parts) != len(files):
         raise LeakError("masking failed")
@@ -142,7 +171,9 @@ def _run(paths: list[str], request: str, client: Client, cfg: Config) -> str:
     user = "\n\n".join(blocks) + f"\n\nTask:\n{request}"
     prompt = _SYSTEM + "\n" + user
     check_budget(files, prompt, cfg.num_ctx)
-    answer = checked_text(client.chat(_SYSTEM, user), cfg.num_ctx, prompt)
+    result = client.chat(_SYSTEM, user)
+    stats["prompt_tokens"] = result.prompt_eval_count
+    answer = checked_text(result, cfg.num_ctx, prompt)
     if repeats_files(answer, masked_parts):
         raise LeakError(REPEAT_ERROR)
     safe = filter_output(answer, mapping.values(), make_name_finder(client, cfg.num_ctx))
@@ -151,17 +182,12 @@ def _run(paths: list[str], request: str, client: Client, cfg: Config) -> str:
 
 
 def ask(paths: list[str], question: str, client: Client, cfg: Config) -> str:
-    try:
-        return _run(paths, f"Answer this question from the files: {question}", client, cfg)
-    except Exception as exc:  # noqa: BLE001 - fail closed
-        return error_text(exc)
+    request = f"Answer this question from the files: {question}"
+    return _logged("ask", cfg, paths, lambda st: _run(paths, request, client, cfg, st))
 
 
 def task(paths: list[str], instruction: str, client: Client, cfg: Config) -> str:
-    try:
-        return _run(paths, instruction, client, cfg)
-    except Exception as exc:  # noqa: BLE001 - fail closed
-        return error_text(exc)
+    return _logged("task", cfg, paths, lambda st: _run(paths, instruction, client, cfg, st))
 
 
 def edit(
@@ -171,13 +197,16 @@ def edit(
     cfg: Config,
     approve: Approver = ask_approval,
 ) -> str:
-    try:
-        return run_edit(path, instruction, client, cfg, approve)
-    except Exception as exc:  # noqa: BLE001 - fail closed
-        return error_text(exc)
+    return _logged(
+        "edit", cfg, [path], lambda st: run_edit(path, instruction, client, cfg, approve)
+    )
 
 
 def status(client: Client, cfg: Config) -> str:
+    return _logged("status", cfg, [], lambda st: _status(client, cfg))
+
+
+def _status(client: Client, cfg: Config) -> str:
     try:
         check_host(cfg)
         installed = client.list_models()
@@ -204,6 +233,26 @@ def configure(
     timeout_s: int | None = None,
 ) -> tuple[Config, str]:
     """Return (config to keep, message). On any error the old config is returned."""
+    holder = {"cfg": cfg}
+
+    def work(stats: dict) -> str:
+        new, message = _configure(client, cfg, num_ctx=num_ctx, model=model, timeout_s=timeout_s)
+        holder["cfg"] = new
+        stats.update(model=new.model, num_ctx=new.num_ctx)
+        return message
+
+    message = _logged("config", cfg, [], work)
+    return holder["cfg"], message
+
+
+def _configure(
+    client: Client,
+    cfg: Config,
+    *,
+    num_ctx: int | None,
+    model: str | None,
+    timeout_s: int | None,
+) -> tuple[Config, str]:
     try:
         check_host(cfg)
         installed = client.list_models()

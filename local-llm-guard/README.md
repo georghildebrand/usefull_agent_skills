@@ -121,6 +121,27 @@ Measured on an Apple Silicon Mac with `qwen2.5:14b`, with the prompt filled to a
 
 You can repeat the measurement with `make measure`.
 
+## Usage log
+
+Every tool call (MCP or command line) appends one JSON line to
+`~/.local/state/local-llm-guard/usage.jsonl` (folder mode 700, file mode 600).
+
+A line holds metadata only: time, front end (`mcp` or `cli`), tool, outcome
+(`ok`, `error`, `approved`, `rejected`, `no change`), the fixed error message, duration,
+model, `num_ctx`, file paths with token estimates, prompt tokens reported by Ollama, the
+number of secrets masked before the model, and the number of masks in the result by kind.
+It never holds file content, the question or instruction, the answer, secret values or names.
+
+At 5 MB the file moves to `usage.jsonl.1`; one old file is kept.
+
+```bash
+uv run local-llm-guard usage            # summary of all entries
+uv run local-llm-guard usage --days 7   # only the last 7 days
+jq -c 'select(.outcome=="error")' ~/.local/state/local-llm-guard/usage.jsonl
+```
+
+Set `LOCAL_LLM_GUARD_USAGE_LOG=off` to switch the log off, or to a file path to write elsewhere.
+
 ## Sandbox notes
 
 A spike inside the `nono` sandbox showed that:

@@ -7,7 +7,7 @@ import os
 import sys
 from collections.abc import Callable
 
-from local_llm_guard import server, service
+from local_llm_guard import server, service, usage
 from local_llm_guard.backup import prune_backups
 from local_llm_guard.config import Config, config_from_env
 from local_llm_guard.ollama import Client, OllamaClient
@@ -36,6 +36,8 @@ def build_parser() -> argparse.ArgumentParser:
     edit.add_argument("-i", "--instruction", required=True)
     sub.add_parser("status", help="show model and Ollama status")
     sub.add_parser("serve", help="start the MCP server on stdio")
+    use = sub.add_parser("usage", help="summarise the usage log (metadata only)")
+    use.add_argument("--days", type=int, default=None, help="only the last N days")
     return p
 
 
@@ -59,6 +61,14 @@ def main(
         if args.command in (None, "serve"):
             server.main()
             return 0
+        if args.command == "usage":
+            path = usage.log_path()
+            if path is None:
+                print(f"usage log is off ({usage.LOG_ENV}=off)")
+                return 0
+            print(usage.summarize(usage.read_entries(path, args.days), str(path)))
+            return 0
+        usage.set_front("cli")
         if args.command == "edit":
             try:
                 prune_backups()
@@ -69,7 +79,7 @@ def main(
     except _UsageError as exc:
         result = f"error: usage: {exc}"
     except SystemExit:
-        result = "error: usage: local-llm-guard [ask|task|edit|status|serve] ..."
+        result = "error: usage: local-llm-guard [ask|task|edit|status|usage|serve] ..."
     except Exception as exc:  # noqa: BLE001 - fail closed, nothing on stderr
         result = service.error_text(exc)
     print(result)
