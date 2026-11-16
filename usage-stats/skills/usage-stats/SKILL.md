@@ -118,6 +118,16 @@ categories set, the report groups by category. A topic that fits none goes to
 `other`. Categories listed in `hidden_categories` are left out of the report and
 counted in one line.
 
+## Hardest sessions
+
+`HARDEST SESSIONS` lists up to five sessions per week with the most corrections
+and direction changes, each with at least two of them in five or more prompts.
+Every entry shows the title, the start of the first prompt and the first
+correction or direction change, so the opening prompt can be compared with the
+later trouble. Long sessions collect more of both, so read the count together
+with the number of prompts. The entries quote prompt text. The weekly files live
+in the state directory, never in this repository.
+
 ## Tools, skills and servers
 
 `extract.py` also counts, per session, every built-in tool, skill, slash command,

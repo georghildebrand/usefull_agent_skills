@@ -135,6 +135,58 @@ def wrap_names(prefix, names):
     return lines
 
 
+FRICTION_KINDS = ("correction", "steer")
+MIN_PROMPTS_FOR_HARD = 5
+TOP_HARD = 5
+EXCERPT_CHARS = 90
+
+
+def excerpt(text, limit=EXCERPT_CHARS):
+    """One line of at most `limit` characters from a prompt head."""
+    flat = " ".join((text or "").split())
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
+
+
+def hard_lines(sessions, prompts):
+    """Sessions with the most corrections and direction changes.
+
+    A session is hard when the user had to reject or redirect often. Each entry
+    shows how the session started and where the first correction or direction
+    change came, so the opening prompt can be compared with the later trouble.
+    Prompts typed by nobody (kind auto) are not counted.
+    """
+    out = ["HARDEST SESSIONS (corrections and direction changes)"]
+    by_session = {}
+    for p in prompts:
+        if p["kind"] and p["kind"] != "auto":
+            by_session.setdefault(p["session_id"], []).append(p)
+    ranked = []
+    for s in sessions:
+        rows = sorted(by_session.get(s["session_id"], []), key=lambda p: p["turn"])
+        friction = [p for p in rows if p["kind"] in FRICTION_KINDS]
+        if len(rows) >= MIN_PROMPTS_FOR_HARD and len(friction) >= 2:
+            ranked.append((s, rows, friction))
+    ranked.sort(key=lambda t: (-len(t[2]), -len(t[2]) / len(t[1])))
+    if not ranked:
+        return out + ["  none: no session with 2 or more of them in %d prompts"
+                      % MIN_PROMPTS_FOR_HARD]
+    for s, rows, friction in ranked[:TOP_HARD]:
+        corr = sum(1 for p in friction if p["kind"] == "correction")
+        out.append(
+            "  %d corrections, %d direction changes in %d prompts, %s, %s"
+            % (corr, len(friction) - corr, len(rows),
+               fmt_duration(s["active_seconds"]), s["topic"])
+        )
+        out.append("    title:  %s" % excerpt(s["ai_title"] or "(no title)", 70))
+        out.append("    start:  %s" % excerpt(rows[0]["text_head"]))
+        first = friction[0]
+        out.append(
+            "    first:  turn %d, %s: %s"
+            % (first["turn"], first["kind"], excerpt(first["text_head"]))
+        )
+    return out
+
+
 def tool_lines(con, sessions, noise):
     """Most used tools, skills, MCP servers, subagents and programs of a week."""
     out = ["TOOLS USED (calls)"]
@@ -369,6 +421,8 @@ def render_week(con, iso_week, threshold, use_categories=False, hidden=()):
         )
         out.append("  (%d labelled prompts)" % n)
     cfg = load_config()
+    out.append("")
+    out.extend(hard_lines(sessions, prompts))
     out.append("")
     out.extend(tool_lines(con, sessions, set(cfg["cli_noise"])))
     out.append("")

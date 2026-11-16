@@ -370,6 +370,45 @@ class CategoryTest(unittest.TestCase):
         self.assertEqual(hidden, 0)
 
 
+class HardSessionTest(unittest.TestCase):
+    """The hardest sessions are those with the most corrections and steers."""
+
+    def test_ranking_and_excerpts(self):
+        import report
+
+        def session(sid, title):
+            return {"session_id": sid, "ai_title": title, "topic": "build",
+                    "active_seconds": 600}
+
+        def prompts(sid, kinds):
+            return [
+                {"session_id": sid, "turn": i, "kind": k, "text_head": "%s %d" % (sid, i)}
+                for i, k in enumerate(kinds, 1)
+            ]
+
+        sessions = [session("calm", "calm one"), session("rough", "rough one"),
+                    session("short", "too short")]
+        rows = (
+            prompts("calm", ["task", "task", "info_request", "task", "task"])
+            + prompts("rough", ["task", "auto", "steer", "correction", "correction", "task"])
+            + prompts("short", ["correction", "steer"])
+        )
+        text = "\n".join(report.hard_lines(sessions, rows))
+        self.assertIn("2 corrections, 1 direction changes in 5 prompts", text)
+        self.assertIn("title:  rough one", text)
+        self.assertIn("start:  rough 1", text)
+        # The auto prompt is skipped, so the first steer is the third counted turn.
+        self.assertIn("first:  turn 3, steer: rough 3", text)
+        self.assertNotIn("calm one", text)
+        self.assertNotIn("too short", text)  # fewer than 5 prompts
+
+    def test_nothing_to_show(self):
+        import report
+
+        text = "\n".join(report.hard_lines([], []))
+        self.assertIn("none", text)
+
+
 class UsageTest(unittest.TestCase):
     """Counting which tools, skills, servers and programs a session used."""
 
