@@ -34,20 +34,68 @@ def median_first_edit_turn(session_rows):
     return statistics.median(values)
 
 
-def is_zero_output(session_row, token_threshold):
-    """True when a session spent output tokens but produced no lasting change.
+def _field(row, key):
+    """Read a column from a sqlite3.Row or a dict; a missing key is None."""
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
 
-    Needs all three: enough output tokens to matter, no file written, and no
-    commit. A long discussion that ends in one edit is not counted.
+
+def is_measurable(session_row):
+    """True when the external-write columns were filled for this session.
+
+    NULL means the row was stored before those columns existed and its
+    transcript was never read again, often because the file is gone. Such a
+    session has an unknown result, which is different from no result.
     """
-    if (session_row["tokens_out"] or 0) <= token_threshold:
-        return False
-    produced = (
-        (session_row["n_edit"] or 0)
-        + (session_row["n_write"] or 0)
-        + (session_row["n_commits"] or 0)
+    return (
+        _field(session_row, "n_external_write") is not None
+        and _field(session_row, "n_subagent_produced") is not None
     )
-    return produced == 0
+
+
+def result_status(session_row, token_threshold):
+    """Say whether a session produced something outside the chat.
+
+    Returns one of:
+      "cheap"      below the token threshold, not looked at
+      "produced"   a file edit, commit, external write or subagent result
+      "nothing"    measured, and none of those exists
+      "unmeasured" no file edit or commit, and the other counters were never filled
+    A file edit or commit settles the question even without the new counters.
+    """
+    if (_field(session_row, "tokens_out") or 0) <= token_threshold:
+        return "cheap"
+    own = (
+        (_field(session_row, "n_edit") or 0)
+        + (_field(session_row, "n_write") or 0)
+        + (_field(session_row, "n_commits") or 0)
+    )
+    if own > 0:
+        return "produced"
+    if not is_measurable(session_row):
+        return "unmeasured"
+    # is_measurable() ruled out NULL above, so "or 0" only satisfies the type
+    # checker and never hides an unmeasured value.
+    others = (_field(session_row, "n_external_write") or 0) + (
+        _field(session_row, "n_subagent_produced") or 0
+    )
+    return "produced" if others > 0 else "nothing"
+
+
+def is_zero_output(session_row, token_threshold):
+    """True when a session spent output tokens and measurably produced nothing.
+
+    A session that is not measurable is not listed here. It has its own line in
+    the report, so a missing transcript is never read as "nothing produced".
+    """
+    return result_status(session_row, token_threshold) == "nothing"
+
+
+def is_unmeasured(session_row, token_threshold):
+    """True when the result of a session above the threshold is unknown."""
+    return result_status(session_row, token_threshold) == "unmeasured"
 
 
 def is_background(session_row):
@@ -62,6 +110,7 @@ def is_background(session_row):
 def summarise_group(session_rows, prompt_rows, token_threshold):
     """Aggregate one group of sessions into the figures the report prints."""
     zero = [r for r in session_rows if is_zero_output(r, token_threshold)]
+    unmeasured = [r for r in session_rows if is_unmeasured(r, token_threshold)]
     return {
         "sessions": len(session_rows),
         "active_seconds": sum(r["active_seconds"] or 0 for r in session_rows),
@@ -82,6 +131,8 @@ def summarise_group(session_rows, prompt_rows, token_threshold):
         ),
         "zero_output_sessions": len(zero),
         "zero_output_seconds": sum(r["active_seconds"] or 0 for r in zero),
+        "unmeasured_sessions": len(unmeasured),
+        "unmeasured_seconds": sum(r["active_seconds"] or 0 for r in unmeasured),
     }
 
 

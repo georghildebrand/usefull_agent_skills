@@ -10,6 +10,8 @@ Usage:
   report.py --week 2026-W36       one specific week
   report.py --weeks 4             the last 4 completed weeks, compared
   report.py --write-snapshot      also write the week to a Markdown file
+  report.py --write-snapshot --if-missing
+                                  ...but leave an existing snapshot untouched
 """
 import argparse
 import os
@@ -22,6 +24,8 @@ from signals import (  # noqa: E402
     fmt_duration,
     fmt_ratio,
     fmt_tokens,
+    is_unmeasured,
+    is_zero_output,
     summarise_group,
 )
 
@@ -166,18 +170,17 @@ def render_week(con, iso_week, threshold):
     out.append("")
 
     out.append("WHERE EFFORT PRODUCED NOTHING")
-    zero = [
-        s for s in sessions
-        if (s["tokens_out"] or 0) > threshold
-        and (s["n_edit"] or 0) + (s["n_write"] or 0) + (s["n_commits"] or 0) == 0
-    ]
+    zero = [s for s in sessions if is_zero_output(s, threshold)]
+    unmeasured = [s for s in sessions if is_unmeasured(s, threshold)]
     if not zero:
-        out.append("  none: every session above the token threshold changed something")
+        out.append("  none: every measured session above the token threshold"
+                   " changed something")
     else:
         out.append(
-            "  %d sessions spent over %s output tokens with no edit and no commit,"
-            % (len(zero), fmt_tokens(threshold))
+            "  %d sessions spent over %s output tokens with no file edit, no"
+            " commit," % (len(zero), fmt_tokens(threshold))
         )
+        out.append("  no external write and no subagent result,")
         out.append(
             "  %s of active time in total."
             % fmt_duration(sum(s["active_seconds"] or 0 for s in zero))
@@ -192,6 +195,17 @@ def render_week(con, iso_week, threshold):
                     (s["ai_title"] or "(no title)")[:40],
                 )
             )
+    if unmeasured:
+        # Not listed above: the transcript was gone before the external-write
+        # counters existed, so the result is unknown, not zero.
+        out.append(
+            "  not measurable: %d sessions above the threshold, %s of active time"
+            % (
+                len(unmeasured),
+                fmt_duration(sum(s["active_seconds"] or 0 for s in unmeasured)),
+            )
+        )
+        out.append("  (no file edit or commit; external writes were never counted)")
     out.append("")
 
     out.append("PROMPT KINDS")
@@ -219,6 +233,11 @@ def main():
     ap.add_argument("--week", help="ISO week, e.g. 2026-W36")
     ap.add_argument("--weeks", type=int, help="compare the last N completed weeks")
     ap.add_argument("--write-snapshot", action="store_true")
+    ap.add_argument(
+        "--if-missing",
+        action="store_true",
+        help="with --write-snapshot: skip a week whose snapshot file exists",
+    )
     args = ap.parse_args()
 
     cfg = load_config()
@@ -227,13 +246,16 @@ def main():
 
     weeks = [args.week] if args.week else previous_weeks(args.weeks or 1)
     for i, wk in enumerate(weeks):
+        path = os.path.join(WEEKLY_DIR, "%s.md" % wk)
+        if args.write_snapshot and args.if_missing and os.path.exists(path):
+            print("snapshot for %s exists, nothing to do: %s" % (wk, path))
+            continue
         if i:
             print("\n" + "=" * 72 + "\n")
         lines = render_week(con, wk, threshold)
         print("\n".join(lines))
         if args.write_snapshot:
             os.makedirs(WEEKLY_DIR, exist_ok=True)
-            path = os.path.join(WEEKLY_DIR, "%s.md" % wk)
             with open(path, "w") as fh:
                 fh.write("# Claude Code usage, week %s\n\n```\n" % wk)
                 fh.write("\n".join(lines))

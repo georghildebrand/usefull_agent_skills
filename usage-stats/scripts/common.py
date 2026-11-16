@@ -47,6 +47,40 @@ DEFAULT_CONFIG = {
     "ticket_prefixes": [],
     # Free-text hints that steer topic naming, e.g. ["billing", "infra"].
     "topic_hints": [],
+    # A session produced a result when it changed state outside the chat. File
+    # edits and commits are always counted. These patterns add the write calls
+    # that leave no file edit behind. Names only approximate the property, so a
+    # missed tool is a one-line change here, not a code change.
+    #
+    # Matched case-insensitively against the last part of an MCP tool name
+    # (mcp__server__<this part>).
+    "result_tool_patterns": [
+        "create",
+        "commit",
+        "update",
+        "edit",
+        "supersede",
+        "synthesi[sz]e",
+        "link",
+        "transition",
+        "delete",
+        "publish",
+        "send",
+        "write",
+        "(^|_)set_",
+        "(^|_)add",
+        "attach",
+        "rename",
+        "todo_claim",
+    ],
+    # Matched against the whole Bash command.
+    "result_bash_patterns": [
+        r"\bgit( -C \S+)? push\b",
+        r"\bgh (pr|issue) (create|edit|comment|merge|close)\b",
+        r"\batlassian-cli\b.*\b(create|update|transition|add|delete)\b",
+        r"\bdatabricks\b.*\b(run-now|submit|deploy)\b",
+        r"\bcurl\b.*-X\s*(POST|PUT|PATCH|DELETE)\b",
+    ],
 }
 
 SCHEMA = """
@@ -81,7 +115,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   n_commits INTEGER DEFAULT 0,
   n_claude_questions INTEGER DEFAULT 0,
   first_edit_turn INTEGER,
-  indexed_at TEXT
+  indexed_at TEXT,
+  -- NULL means "never measured" (the row predates these columns and its
+  -- transcript was not read again). 0 means "measured, none found".
+  n_external_write INTEGER,
+  n_subagent_calls INTEGER,
+  n_subagent_produced INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_repo ON sessions(repo);
@@ -163,4 +202,23 @@ def connect():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    migrate(con)
     return con
+
+
+# Columns added after the first release. CREATE TABLE IF NOT EXISTS does not add
+# columns to a table that already exists, so an older database gets them here.
+ADDED_SESSION_COLUMNS = (
+    "n_external_write",
+    "n_subagent_calls",
+    "n_subagent_produced",
+)
+
+
+def migrate(con):
+    """Add columns that an older database does not have yet. Values stay NULL."""
+    have = {r["name"] for r in con.execute("PRAGMA table_info(sessions)")}
+    for col in ADDED_SESSION_COLUMNS:
+        if col not in have:
+            con.execute("ALTER TABLE sessions ADD COLUMN %s INTEGER" % col)
+    con.commit()

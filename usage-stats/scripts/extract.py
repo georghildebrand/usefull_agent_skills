@@ -25,9 +25,11 @@ from common import (  # noqa: E402
     PROMPT_HEAD_CHARS,
     TRANSCRIPT_ROOT,
     connect,
+    load_config,
 )
 
 EDIT_TOOLS = {"Edit", "Write", "NotebookEdit"}
+SUBAGENT_TOOLS = {"Agent", "Task"}
 # The harness injects context into user records inside this tag. It is a single
 # fixed protocol tag, not a category, so matching it by name has no hole.
 REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
@@ -102,6 +104,66 @@ def repo_of(cwd):
         path = parent
 
 
+def compile_patterns(cfg=None):
+    """Compile the result patterns from the private config."""
+    cfg = cfg or load_config()
+    return (
+        [re.compile(p, re.I) for p in cfg["result_tool_patterns"]],
+        [re.compile(p) for p in cfg["result_bash_patterns"]],
+    )
+
+
+def result_kind(block, patterns):
+    """Say what one tool call changed outside the chat.
+
+    Returns "edit", "commit", "external" or None. "external" is a write call to
+    another system: an MCP tool whose name matches a configured pattern, or a
+    Bash command that pushes, opens a pull request, writes to Jira and so on.
+    """
+    name = block.get("name") or ""
+    tool_patterns, bash_patterns = patterns
+    if name in EDIT_TOOLS:
+        return "edit"
+    if name == "Bash":
+        cmd = (block.get("input") or {}).get("command") or ""
+        if "git commit" in cmd:
+            return "commit"
+        if any(p.search(cmd) for p in bash_patterns):
+            return "external"
+    elif name.startswith("mcp__"):
+        short = name.split("__")[-1]
+        if any(p.search(short) for p in tool_patterns):
+            return "external"
+    return None
+
+
+def subagent_files(path):
+    """Transcripts of the subagents that a session started.
+
+    They live next to the session file, in <session-id>/subagents/, possibly
+    nested (workflows). The top-level glob in main() never reaches them.
+    """
+    root = os.path.join(path[: -len(".jsonl")], "subagents")
+    for dirpath, _dirs, files in os.walk(root):
+        for name in sorted(files):
+            if name.endswith(".jsonl"):
+                yield os.path.join(dirpath, name)
+
+
+def count_subagent_results(path, patterns):
+    """Count the results (edits, commits, external writes) of all subagents."""
+    produced = 0
+    for sub in subagent_files(path):
+        for rec in iter_records(sub):
+            if rec.get("type") != "assistant":
+                continue
+            for block in (rec.get("message", {}) or {}).get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    if result_kind(block, patterns):
+                        produced += 1
+    return produced
+
+
 def iter_records(path):
     """Yield each parsable JSON object from a transcript, streaming the file.
 
@@ -120,8 +182,9 @@ def iter_records(path):
                 continue
 
 
-def extract_file(path):
+def extract_file(path, patterns=None):
     """Aggregate one transcript file into {session_id: {row, prompts, ...}}."""
+    patterns = patterns or compile_patterns()
     sessions = {}
     for rec in iter_records(path):
         sid = rec.get("sessionId") or rec.get("session_id")
@@ -154,6 +217,9 @@ def extract_file(path):
                     "n_commits": 0,
                     "n_claude_questions": 0,
                     "first_edit_turn": None,
+                    "n_external_write": 0,
+                    "n_subagent_calls": 0,
+                    "n_subagent_produced": 0,
                 },
                 "prompts": [],
                 "models": set(),
@@ -207,6 +273,10 @@ def extract_file(path):
                     continue
                 name = block.get("name")
                 row["n_tool_calls"] += 1
+                if name in SUBAGENT_TOOLS:
+                    row["n_subagent_calls"] += 1
+                if result_kind(block, patterns) == "external":
+                    row["n_external_write"] += 1
                 if name in EDIT_TOOLS:
                     row["n_edit"] += 1
                     if name == "Write":
@@ -220,6 +290,14 @@ def extract_file(path):
                         row["n_commits"] += 1
                 elif name == "AskUserQuestion":
                     row["n_claude_questions"] += 1
+
+    # The subagent folder is named after the session id, which is also the file
+    # name. A forked file that shares an id with another one has no folder.
+    own_id = os.path.basename(path)[: -len(".jsonl")]
+    if own_id in sessions:
+        sessions[own_id]["row"]["n_subagent_produced"] = count_subagent_results(
+            path, patterns
+        )
 
     for st in sessions.values():
         row, times = st["row"], sorted(st["times"])
