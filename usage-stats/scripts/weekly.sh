@@ -43,4 +43,6 @@ else
   echo "claude CLI not found, skipping classification" >&2
 fi
 
+"$PY" "$HERE/inventory.py" || echo "inventory failed" >&2
+
 "$PY" "$HERE/report.py" --write-snapshot --if-missing

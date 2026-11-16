@@ -118,6 +118,28 @@ categories set, the report groups by category. A topic that fits none goes to
 `other`. Categories listed in `hidden_categories` are left out of the report and
 counted in one line.
 
+## Tools, skills and servers
+
+`extract.py` also counts, per session, every built-in tool, skill, slash command,
+MCP server (per server), subagent and program started from Bash. The report shows
+the five most used of each kind in `TOOLS USED`.
+
+`inventory.py` stores the names of the installed skills, subagents and MCP
+servers, read from the Claude Code folders, the installed plugins and the
+`mcpServers` keys of the user settings file. Only names are stored; the settings
+file also holds tokens, so its values are never read into the database.
+`INSTALLED BUT NOT USED` lists every installed item that no session used in the
+last `unused_after_days` days (default 28).
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/inventory.py"                   # refresh the installed list
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/inventory.py" --skip-user-mcp   # without the settings file
+```
+
+Programs that every session uses (`ls`, `grep`, `python3` and so on) are left
+out of the program list by `cli_noise` in `config.json`. Skills are matched by
+folder name, so a skill whose own name differs from its folder shows as unused.
+
 ## Closing the gaps
 
 The first pass sends at most 40 prompts per session to the model, and the model

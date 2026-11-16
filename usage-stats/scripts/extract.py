@@ -34,6 +34,15 @@ SUBAGENT_TOOLS = {"Agent", "Task"}
 # fixed protocol tag, not a category, so matching it by name has no hole.
 REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
 DURATION_RE = re.compile(r"^(\d+)([dwh])$")
+# A slash command typed by the user is recorded as a tag in the prompt text.
+COMMAND_RE = re.compile(r"<command-name>/?([^<\s]+)</command-name>")
+
+QUOTED_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
+SEGMENT_RE = re.compile(r"&&|\|\||;|\||\n")
+ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+PROGRAM_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,39}$")
+# Words that run another program. The name that counts is the one after them.
+WRAPPERS = {"rtk", "sudo", "time", "command", "nohup", "env", "exec", "nice"}
 
 
 def parse_since(spec):
@@ -137,6 +146,45 @@ def result_kind(block, patterns):
     return None
 
 
+def cli_names(command):
+    """Names of the programs a Bash command starts.
+
+    Looks at the first word of each part of a pipeline or command list. Text
+    inside quotes and the body of a here-document are dropped first, because
+    they hold arguments and data, not programs. A wrapper such as rtk is skipped
+    so that the program behind it is counted.
+    """
+    command = command.split("<<", 1)[0]
+    command = QUOTED_RE.sub("''", command)
+    names = []
+    for part in SEGMENT_RE.split(command):
+        for word in part.split():
+            if ENV_ASSIGN_RE.match(word) or word in WRAPPERS:
+                continue
+            word = os.path.basename(word)
+            if PROGRAM_RE.match(word):
+                names.append(word)
+            break
+    return names
+
+
+def usage_keys(block):
+    """The (kind, name) pairs one tool call adds to the usage counts."""
+    name = block.get("name") or ""
+    inp = block.get("input") or {}
+    if name.startswith("mcp__"):
+        parts = name.split("__")
+        return [("mcp", parts[1] if len(parts) > 1 else name)]
+    if name == "Skill":
+        return [("skill", str(inp.get("skill") or "?"))]
+    if name in SUBAGENT_TOOLS:
+        return [("subagent", str(inp.get("subagent_type") or "general-purpose"))]
+    keys = [("tool", name or "?")]
+    if name == "Bash":
+        keys += [("cli", n) for n in cli_names(inp.get("command") or "")]
+    return keys
+
+
 def subagent_files(path):
     """Transcripts of the subagents that a session started.
 
@@ -224,6 +272,7 @@ def extract_file(path, patterns=None):
                 "prompts": [],
                 "models": set(),
                 "times": [],
+                "usage": {},
             },
         )
         row = st["row"]
@@ -248,6 +297,10 @@ def extract_file(path, patterns=None):
         if rec.get("type") == "user":
             text = user_text(rec)
             if text:
+                command = COMMAND_RE.search(text)
+                if command:
+                    key = ("command", command.group(1))
+                    st["usage"][key] = st["usage"].get(key, 0) + 1
                 row["n_user_prompts"] += 1
                 st["prompts"].append(
                     {
@@ -273,6 +326,8 @@ def extract_file(path, patterns=None):
                     continue
                 name = block.get("name")
                 row["n_tool_calls"] += 1
+                for key in usage_keys(block):
+                    st["usage"][key] = st["usage"].get(key, 0) + 1
                 if name in SUBAGENT_TOOLS:
                     row["n_subagent_calls"] += 1
                 if result_kind(block, patterns) == "external":
@@ -348,6 +403,11 @@ def store(con, sessions):
                 "SELECT turn, kind FROM prompts WHERE session_id = ?", (sid,)
             )
         }
+        con.execute("DELETE FROM tool_usage WHERE session_id = ?", (sid,))
+        con.executemany(
+            "INSERT INTO tool_usage (session_id,kind,name,calls) VALUES (?,?,?,?)",
+            [(sid, k, n, c) for (k, n), c in st["usage"].items()],
+        )
         con.execute("DELETE FROM prompts WHERE session_id = ?", (sid,))
         con.executemany(
             "INSERT INTO prompts (session_id,turn,ts,chars,text_head,kind)"

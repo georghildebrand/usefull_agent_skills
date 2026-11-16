@@ -102,6 +102,11 @@ class SignalsTest(unittest.TestCase):
         self.assertAlmostEqual(signals.kind_ratio(rows, "correction"), 0.5)
         self.assertAlmostEqual(signals.kind_ratio(rows, "steer"), 0.0)
 
+    def test_auto_prompts_stay_out_of_the_denominator(self):
+        rows = [{"kind": "task"}, {"kind": "correction"}, {"kind": "auto"}] * 2
+        self.assertAlmostEqual(signals.kind_ratio(rows, "correction"), 0.5)
+        self.assertIsNone(signals.kind_ratio([{"kind": "auto"}], "correction"))
+
     def test_ratio_of_empty_input_is_none(self):
         self.assertIsNone(signals.kind_ratio([], "correction"))
         self.assertIsNone(signals.kind_ratio([{"kind": None}], "correction"))
@@ -363,6 +368,147 @@ class CategoryTest(unittest.TestCase):
         sessions, _prompts, hidden = report.load_week(con, "2020-W10")
         self.assertEqual(len(sessions), 4)
         self.assertEqual(hidden, 0)
+
+
+class UsageTest(unittest.TestCase):
+    """Counting which tools, skills, servers and programs a session used."""
+
+    def test_programs_come_from_the_first_word_of_each_command_part(self):
+        self.assertEqual(
+            extract.cli_names("rtk git status && FOO=1 make test | tee out.txt"),
+            ["git", "make", "tee"],
+        )
+        # Quoted text and here-document bodies are data, not programs.
+        self.assertEqual(
+            extract.cli_names("python3 -c 'import os; print(1)'"), ["python3"]
+        )
+        self.assertEqual(
+            extract.cli_names("tool --x <<'TEXT'\nnot-a-program\nTEXT"), ["tool"]
+        )
+        self.assertEqual(extract.cli_names("/usr/local/bin/graphify build"), ["graphify"])
+
+    def test_a_session_counts_every_kind(self):
+        d = tempfile.mkdtemp(prefix="usage-stats-use-")
+        sid = "use-s1"
+        main = os.path.join(d, "proj", sid + ".jsonl")
+        _write_jsonl(
+            main,
+            [
+                {
+                    "type": "user",
+                    "sessionId": sid,
+                    "timestamp": "2026-01-01T10:00:00Z",
+                    "message": {
+                        "role": "user",
+                        "content": "<command-name>/statustable</command-name>",
+                    },
+                },
+                _assistant(
+                    sid,
+                    "2026-01-01T10:00:05Z",
+                    ("Skill", {"skill": "text-writer"}),
+                    ("Skill", {"skill": "text-writer"}),
+                    ("mcp__notes__recall", {}),
+                    ("mcp__notes__commit_episode", {}),
+                    ("Agent", {"subagent_type": "Explore"}),
+                    ("Agent", {}),
+                    ("Bash", {"command": "make test && git status"}),
+                    ("Read", {}),
+                ),
+            ],
+        )
+        con = connect()
+        extract.store(con, extract.extract_file(main))
+        got = {
+            (r["kind"], r["name"]): r["calls"]
+            for r in con.execute(
+                "SELECT kind, name, calls FROM tool_usage WHERE session_id = ?",
+                (sid,),
+            )
+        }
+        self.assertEqual(got[("skill", "text-writer")], 2)
+        self.assertEqual(got[("command", "statustable")], 1)
+        self.assertEqual(got[("mcp", "notes")], 2)  # per server, not per tool
+        self.assertEqual(got[("subagent", "Explore")], 1)
+        self.assertEqual(got[("subagent", "general-purpose")], 1)
+        self.assertEqual(got[("tool", "Bash")], 1)
+        self.assertEqual(got[("cli", "make")], 1)
+        self.assertEqual(got[("cli", "git")], 1)
+        self.assertEqual(got[("tool", "Read")], 1)
+
+
+class InventoryTest(unittest.TestCase):
+    """The installed list holds names only and follows the usage-name format."""
+
+    def test_names_of_skills_agents_and_servers(self):
+        import inventory
+
+        home = tempfile.mkdtemp(prefix="usage-stats-home-")
+        os.makedirs(os.path.join(home, "skills", "my-skill"))
+        open(os.path.join(home, "skills", "my-skill", "SKILL.md"), "w").close()
+        os.makedirs(os.path.join(home, "skills", "not-a-skill"))
+        os.makedirs(os.path.join(home, "agents"))
+        open(os.path.join(home, "agents", "my-agent.md"), "w").close()
+        plugin = os.path.join(home, "cache", "pl")
+        os.makedirs(os.path.join(plugin, "skills", "sk"))
+        open(os.path.join(plugin, "skills", "sk", "SKILL.md"), "w").close()
+        os.makedirs(os.path.join(plugin, "agents"))
+        open(os.path.join(plugin, "agents", "ag.md"), "w").close()
+        with open(os.path.join(plugin, ".mcp.json"), "w") as fh:
+            json.dump({"mcpServers": {"srv": {"command": "SECRET"}}}, fh)
+        os.makedirs(os.path.join(home, "plugins"))
+        with open(os.path.join(home, "plugins", "installed_plugins.json"), "w") as fh:
+            json.dump({"plugins": {"pl@market": [{"installPath": plugin}]}}, fh)
+        settings = os.path.join(home, "user.json")
+        with open(settings, "w") as fh:
+            json.dump(
+                {"mcpServers": {"claude.ai Docs": {"env": {"TOKEN": "SECRET"}}}}, fh
+            )
+        items = inventory.installed_items(home, settings)
+        self.assertEqual(
+            [(k, n) for k, n, _src in items],
+            [
+                ("mcp", "claude_ai_Docs"),
+                ("mcp", "plugin_pl_srv"),
+                ("skill", "my-skill"),
+                ("skill", "pl:sk"),
+                ("subagent", "my-agent"),
+                ("subagent", "pl:ag"),
+            ],
+        )
+        # No value from the settings files may end up in the stored list.
+        self.assertNotIn("SECRET", repr(items))
+
+    def test_report_lists_installed_items_without_recent_use(self):
+        import inventory
+        import report
+        from datetime import datetime, timezone
+
+        con = connect()
+        inventory.refresh(
+            con,
+            [
+                ("skill", "used-skill", "user"),
+                ("skill", "slash-skill", "user"),
+                ("skill", "idle-skill", "user"),
+            ],
+        )
+        con.execute(
+            "INSERT INTO sessions (session_id, transcript_path, transcript_mtime,"
+            " started_at, n_user_prompts) VALUES ('inv-s1', '/x', 0,"
+            " '2020-03-03T10:00:00+00:00', 1)"
+        )
+        con.executemany(
+            "INSERT INTO tool_usage (session_id, kind, name, calls) VALUES (?,?,?,?)",
+            [("inv-s1", "skill", "used-skill", 1), ("inv-s1", "command", "slash-skill", 1)],
+        )
+        con.commit()
+        end = datetime(2020, 3, 9, tzinfo=timezone.utc)
+        text = "\n".join(report.unused_lines(con, end, 28))
+        self.assertIn("skills: 1 of 3 unused", text)
+        self.assertIn("idle-skill", text)
+        self.assertNotIn("used-skill,", text)
+        self.assertNotIn("slash-skill", text)
 
 
 class MigrationTest(unittest.TestCase):

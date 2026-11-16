@@ -60,6 +60,9 @@ KIND_DEFINITIONS = """  task            a new request for work
   clarify_answer  answers a question the assistant asked
   info_request    a question only, no change wanted
   meta            about the assistant, its tools, or permissions
+  auto            not typed by the user: an interruption marker, a compaction
+                  summary, a notification from the IDE, a tool or the system,
+                  or the output of a command
 
 Judge "correction" by whether the prompt rejects or redirects the previous
 answer, not by whether it contains particular words.

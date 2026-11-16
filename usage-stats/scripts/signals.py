@@ -14,7 +14,9 @@ def kind_ratio(prompt_rows, kind):
     classified week reports the ratio of what is known instead of diluting it
     towards zero. Returns None when nothing is classified.
     """
-    classified = [r for r in prompt_rows if r["kind"]]
+    # "auto" marks text the user did not type. It is neither a correction nor
+    # anything else the ratios describe, so it stays out of the denominator.
+    classified = [r for r in prompt_rows if r["kind"] and r["kind"] != "auto"]
     if not classified:
         return None
     return sum(1 for r in classified if r["kind"] == kind) / len(classified)

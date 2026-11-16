@@ -36,6 +36,8 @@ PROMPT_KINDS = (
     "clarify_answer",
     "info_request",
     "meta",
+    # Not typed by the user. Excluded from every ratio.
+    "auto",
 )
 
 # Category for a topic that fits none of the configured ones.
@@ -59,6 +61,20 @@ DEFAULT_CONFIG = {
     "categories": {},
     # Categories left out of the report, for example calls made by tools.
     "hidden_categories": [],
+    # An installed skill, subagent or MCP server that no session used for this
+    # many days is listed as unused.
+    "unused_after_days": 28,
+    # Programs started from Bash that the "programs" list leaves out because
+    # every session uses them. They are still stored.
+    "cli_noise": [
+        "cd", "ls", "cat", "echo", "grep", "sed", "awk", "head", "tail",
+        "find", "sort", "uniq", "wc", "mkdir", "rm", "cp", "mv", "touch",
+        "chmod", "export", "test", "true", "false", "sleep", "date", "pwd",
+        "which", "tr", "cut", "xargs", "tee", "diff", "read", "printf",
+        "source", "set", "unset", "exit", "env", "basename", "dirname",
+        "readlink", "ln", "stat", "file", "python", "python3", "node",
+        "bash", "sh", "zsh", "ps", "kill", "open", "jq", "sqlite3", "curl",
+    ],
     # A session produced a result when it changed state outside the chat. File
     # edits and commits are always counted. These patterns add the write calls
     # that leave no file edit behind. Names only approximate the property, so a
@@ -161,6 +177,27 @@ CREATE TABLE IF NOT EXISTS topic_categories (
   topic TEXT PRIMARY KEY,
   category TEXT NOT NULL,
   assigned_at TEXT
+);
+
+-- How often a session called each tool. kind is one of: tool (built-in),
+-- skill, command (a slash command typed by the user), mcp (per server),
+-- subagent, cli (a program started from Bash).
+CREATE TABLE IF NOT EXISTS tool_usage (
+  session_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  calls INTEGER NOT NULL,
+  PRIMARY KEY (session_id, kind, name)
+);
+CREATE INDEX IF NOT EXISTS idx_tool_usage_name ON tool_usage(kind, name);
+
+-- What is installed right now: skills, subagents and MCP servers. Names only.
+CREATE TABLE IF NOT EXISTS inventory (
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  source TEXT,
+  seen_at TEXT,
+  PRIMARY KEY (kind, name)
 );
 
 CREATE TABLE IF NOT EXISTS runs (

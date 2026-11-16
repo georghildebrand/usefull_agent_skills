@@ -110,6 +110,122 @@ def group_by_topic(sessions, prompts, threshold):
     }
 
 
+USAGE_KINDS = (
+    ("skill", "skills"),
+    ("command", "slash commands"),
+    ("mcp", "MCP servers"),
+    ("subagent", "subagents"),
+    ("cli", "programs in Bash"),
+    ("tool", "built-in tools"),
+)
+TOP_TOOLS = 5
+LINE_WIDTH = 78
+
+
+def wrap_names(prefix, names):
+    """Join names with commas and wrap them under a fixed prefix."""
+    lines, line = [], prefix
+    for name in names:
+        piece = name + ", "
+        if len(line) + len(piece) > LINE_WIDTH and line.strip():
+            lines.append(line.rstrip())
+            line = " " * len(prefix)
+        line += piece
+    lines.append(line.rstrip().rstrip(","))
+    return lines
+
+
+def tool_lines(con, sessions, noise):
+    """Most used tools, skills, MCP servers, subagents and programs of a week."""
+    out = ["TOOLS USED (calls)"]
+    ids = [s["session_id"] for s in sessions]
+    if not ids:
+        return out + ["  no sessions"]
+    marks = ",".join("?" * len(ids))
+    rows = con.execute(
+        "SELECT kind, name, SUM(calls) AS calls FROM tool_usage"
+        " WHERE session_id IN (%s) GROUP BY kind, name" % marks,
+        ids,
+    ).fetchall()
+    have = {
+        r["session_id"]
+        for r in con.execute(
+            "SELECT DISTINCT session_id FROM tool_usage"
+            " WHERE session_id IN (%s)" % marks,
+            ids,
+        )
+    }
+    missing = sum(
+        1 for s in sessions
+        if s["session_id"] not in have and (s["n_tool_calls"] or 0) > 0
+    )
+    for kind, label in USAGE_KINDS:
+        picked = sorted(
+            (r for r in rows if r["kind"] == kind
+             and not (kind == "cli" and r["name"] in noise)),
+            key=lambda r: (-r["calls"], r["name"]),
+        )[:TOP_TOOLS]
+        if picked:
+            out.extend(
+                wrap_names(
+                    "  %-17s" % label,
+                    ["%s %d" % (r["name"], r["calls"]) for r in picked],
+                )
+            )
+    if len(out) == 1:
+        out.append("  no tool data for this week yet; run extract.py --all")
+    if missing:
+        out.append(
+            "  %d sessions have no tool data (transcript gone or indexed earlier)"
+            % missing
+        )
+    return out
+
+
+def unused_lines(con, end, days):
+    """Installed skills, subagents and MCP servers that no session used lately."""
+    out = ["INSTALLED BUT NOT USED (last %d days up to this week)" % days]
+    inventory = con.execute("SELECT kind, name, seen_at FROM inventory").fetchall()
+    if not inventory:
+        return out + ["  no inventory yet; run inventory.py"]
+    start = end - timedelta(days=days)
+    used = {
+        (r["kind"], r["name"])
+        for r in con.execute(
+            "SELECT DISTINCT tu.kind, tu.name FROM tool_usage tu"
+            " JOIN sessions s USING (session_id)"
+            " WHERE s.started_at >= ? AND s.started_at < ?",
+            (start.isoformat(), end.isoformat()),
+        )
+    }
+    measured = con.execute(
+        "SELECT COUNT(DISTINCT tu.session_id) FROM tool_usage tu"
+        " JOIN sessions s USING (session_id)"
+        " WHERE s.started_at >= ? AND s.started_at < ?",
+        (start.isoformat(), end.isoformat()),
+    ).fetchone()[0]
+    out.append(
+        "  basis: %d sessions with tool data; installed list as of %s"
+        % (measured, str(inventory[0]["seen_at"])[:10])
+    )
+    for kind, label in (("skill", "skills"), ("subagent", "subagents"), ("mcp", "MCP servers")):
+        names = sorted(r["name"] for r in inventory if r["kind"] == kind)
+        unused = [
+            n for n in names
+            if (kind, n) not in used
+            and not (kind == "skill" and ("command", n) in used)
+        ]
+        if not names:
+            continue
+        out.append("  %s: %d of %d unused" % (label, len(unused), len(names)))
+        shown = unused[:40]
+        if shown:
+            out.extend(wrap_names("    ", shown))
+        if len(unused) > len(shown):
+            out.append("    ... and %d more" % (len(unused) - len(shown)))
+    return out
+
+
 def render_week(con, iso_week, threshold, use_categories=False, hidden=()):
     """Return the report for one week as a list of text lines."""
     sessions, prompts, hidden_count = load_week(
@@ -238,7 +354,7 @@ def render_week(con, iso_week, threshold, use_categories=False, hidden=()):
     out.append("PROMPT KINDS")
     counts = {}
     for p in prompts:
-        if p["kind"]:
+        if p["kind"] and p["kind"] != "auto":
             counts[p["kind"]] = counts.get(p["kind"], 0) + 1
     if not counts:
         out.append("  no prompts labelled yet; run classify.py")
@@ -252,6 +368,11 @@ def render_week(con, iso_week, threshold, use_categories=False, hidden=()):
             )
         )
         out.append("  (%d labelled prompts)" % n)
+    cfg = load_config()
+    out.append("")
+    out.extend(tool_lines(con, sessions, set(cfg["cli_noise"])))
+    out.append("")
+    out.extend(unused_lines(con, end, cfg["unused_after_days"]))
     return out
 
 
