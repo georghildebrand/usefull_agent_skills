@@ -99,12 +99,38 @@ machine without such a wrapper.
   "batch_size": 10,
   "zero_output_token_threshold": 50000,
   "ticket_prefixes": ["PROJ", "OPS"],
-  "topic_hints": ["billing", "infra", "data-pipeline"]
+  "topic_hints": ["billing", "infra", "data-pipeline"],
+  "categories": {
+    "billing": "invoices and payments",
+    "infra": "servers and deployment",
+    "automatic": "calls made by tools, not by a person"
+  },
+  "hidden_categories": ["automatic"]
 }
 ```
 
 `topic_hints` steers topic naming so sessions on the same subject group
 together instead of getting three similar names.
+
+`categories` groups topics into a few broad categories. A topic names one
+subject and most topics occur once, so single topics cannot be compared. With
+categories set, the report groups by category. A topic that fits none goes to
+`other`. Categories listed in `hidden_categories` are left out of the report and
+counted in one line.
+
+## Closing the gaps
+
+The first pass sends at most 40 prompts per session to the model, and the model
+sometimes leaves out turns. A session that is resumed later also gains prompts
+the first pass never saw. Run both passes below after `classify.py`:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/classify.py" --label-gaps   # label every prompt without a kind
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/classify.py" --categorize   # sort new topics into categories
+```
+
+Both accept `--dry-run`. Without the gap pass, `Corr` and `Steer` are lower
+bounds, because the unlabelled prompts sit late in long sessions.
 
 ## Where files live
 

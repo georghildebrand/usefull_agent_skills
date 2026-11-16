@@ -12,6 +12,8 @@ Usage:
   classify.py --dry-run          show planned calls and estimated cost
   classify.py                    classify every session that has no topic yet
   classify.py --limit 20         classify at most 20 sessions
+  classify.py --label-gaps       label prompts the first pass left without a kind
+  classify.py --categorize       sort topics into the categories of config.json
 """
 import argparse
 import json
@@ -23,6 +25,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import (  # noqa: E402
+    FALLBACK_CATEGORY,
     PROMPT_KINDS,
     SCRATCH_DIR,
     connect,
@@ -51,13 +54,7 @@ MAX_PROMPTS_PER_SESSION = 40
 
 FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$")
 
-INSTRUCTION = """You label Claude Code sessions for a personal time report.
-
-For each session below, return:
-- "topic": 2-4 words, kebab-case, naming the subject of work. Reuse the same
-  wording across sessions that share a subject so they group together.
-- "kinds": one label per prompt turn, choosing exactly one of:
-  task            a new request for work
+KIND_DEFINITIONS = """  task            a new request for work
   correction      rejects or fixes what the assistant just did
   steer           changes direction or scope during the task
   clarify_answer  answers a question the assistant asked
@@ -66,10 +63,37 @@ For each session below, return:
 
 Judge "correction" by whether the prompt rejects or redirects the previous
 answer, not by whether it contains particular words.
+"""
 
+INSTRUCTION = (
+    """You label Claude Code sessions for a personal time report.
+
+For each session below, return:
+- "topic": 2-4 words, kebab-case, naming the subject of work. Reuse the same
+  wording across sessions that share a subject so they group together.
+- "kinds": one label per prompt turn, choosing exactly one of:
+"""
+    + KIND_DEFINITIONS
+    + """
 Return ONLY a JSON array, one object per session, no prose and no code fence:
 [{"n": 1, "topic": "...", "kinds": {"1": "task", "2": "correction"}}]
 """
+)
+
+# Used by the gap pass, which labels prompts the first pass left without a kind.
+SEGMENT_INSTRUCTION = (
+    """You label the prompts of Claude Code sessions for a personal time report.
+
+Each segment below is a run of consecutive prompts from one session. A prompt
+shown as "turn [kind]: text" is already labelled and is context only. Label every
+prompt shown as "turn: text", choosing exactly one of:
+"""
+    + KIND_DEFINITIONS
+    + """
+Return ONLY a JSON array, one object per segment, no prose and no code fence:
+[{"n": 1, "kinds": {"41": "task", "42": "correction"}}]
+"""
+)
 
 
 EMPTY_TOPIC = "(no prompts)"
@@ -309,6 +333,227 @@ def chunks(items, size):
         yield items[i : i + size]
 
 
+def unlabelled_segments(con, size=MAX_PROMPTS_PER_SESSION):
+    """Runs of up to `size` consecutive prompts that hold a prompt without a kind.
+
+    The first pass sends at most MAX_PROMPTS_PER_SESSION prompts per session, and
+    the model sometimes leaves out turns inside that window. A session that is
+    resumed after it was classified also gains prompts the first pass never saw.
+    Every one of those prompts ends up here. Late prompts are the ones most
+    likely to be corrections, so leaving them unlabelled bends the report.
+    """
+    topics = {
+        r["session_id"]: r["topic"]
+        for r in con.execute("SELECT session_id, topic FROM classifications")
+    }
+    by_session = {}
+    for r in con.execute(
+        "SELECT session_id, turn, text_head, kind FROM prompts"
+        " ORDER BY session_id, turn"
+    ):
+        by_session.setdefault(r["session_id"], []).append(r)
+    segments = []
+    for session_id, rows in by_session.items():
+        for block in chunks(rows, size):
+            if any(r["kind"] is None for r in block):
+                segments.append(
+                    {
+                        "session_id": session_id,
+                        "topic": topics.get(session_id),
+                        "prompts": block,
+                    }
+                )
+    return segments
+
+
+def build_segment_prompt(segments):
+    parts = [SEGMENT_INSTRUCTION]
+    for n, seg in enumerate(segments, 1):
+        parts.append("--- segment %d" % n)
+        if seg["topic"]:
+            parts.append("topic: %s" % seg["topic"])
+        for p in seg["prompts"]:
+            text = (p["text_head"] or "").replace("\n", " ")
+            label = "%d [%s]" % (p["turn"], p["kind"]) if p["kind"] else "%d" % p["turn"]
+            parts.append("%s: %s" % (label, text))
+    return "\n".join(parts)
+
+
+def apply_kinds(con, segments, by_n):
+    """Write kinds for prompts that have none. A stored kind is never replaced."""
+    labelled = 0
+    for n, seg in enumerate(segments, 1):
+        item = by_n.get(n)
+        kinds = (item or {}).get("kinds") or {}
+        if not isinstance(kinds, dict):
+            continue
+        for turn, kind in kinds.items():
+            if kind not in PROMPT_KINDS:
+                continue
+            try:
+                turn_i = int(turn)
+            except (TypeError, ValueError):
+                continue
+            cur = con.execute(
+                "UPDATE prompts SET kind = ?"
+                " WHERE session_id = ? AND turn = ? AND kind IS NULL",
+                (kind, seg["session_id"], turn_i),
+            )
+            labelled += cur.rowcount
+    con.commit()
+    return labelled
+
+
+def label_gaps(con, cfg, dry_run, batch_size):
+    """Second pass: give every prompt without a kind a label."""
+    segments = unlabelled_segments(con)
+    if not segments:
+        print("every prompt has a label")
+        return
+    gaps = sum(1 for s in segments for p in s["prompts"] if p["kind"] is None)
+    batches = list(chunks(segments, batch_size))
+    if dry_run:
+        est_in = len(batches) * HARNESS_INPUT_FLOOR + sum(
+            len(s["prompts"]) for s in segments
+        ) * 60
+        est_out = len(segments) * OUTPUT_TOKENS_PER_SESSION
+        usd = est_in / 1e6 * PRICE_IN_PER_M + est_out / 1e6 * PRICE_OUT_PER_M
+        print(
+            "%d prompts without a label in %d segments -> %d calls, list price"
+            " about USD %.2f" % (gaps, len(segments), len(batches), usd)
+        )
+        return
+    total_cost, calls, labelled, failures = 0.0, 0, 0, 0
+    for i, batch in enumerate(batches, 1):
+        remaining = [batch]
+        while remaining:
+            current = remaining.pop(0)
+            try:
+                text, cost, _usage = call_model(
+                    build_segment_prompt(current), cfg["model"]
+                )
+                calls += 1
+                total_cost += cost
+                by_n = parse_reply(text, len(current))
+            except (
+                RuntimeError,
+                ValueError,
+                json.JSONDecodeError,
+                subprocess.TimeoutExpired,
+            ):
+                if len(current) > 1:
+                    half = len(current) // 2
+                    remaining[:0] = [current[:half], current[half:]]
+                else:
+                    failures += 1
+                continue
+            labelled += apply_kinds(con, current, by_n)
+        print(
+            "batch %d/%d done, %d prompts labelled, USD %.3f so far"
+            % (i, len(batches), labelled, total_cost),
+            flush=True,
+        )
+    left = sum(
+        1 for s in unlabelled_segments(con) for p in s["prompts"] if p["kind"] is None
+    )
+    print(
+        "labelled %d of %d prompts in %d calls, list price USD %.2f; %d still"
+        " without a label" % (labelled, gaps, calls, total_cost, left)
+    )
+    if failures:
+        print("%d segments could not be labelled" % failures, file=sys.stderr)
+
+
+TOPICS_PER_CATEGORY_CALL = 150
+
+
+def uncategorised_topics(con):
+    """Topics in use that have no category yet."""
+    return [
+        r["topic"]
+        for r in con.execute(
+            """SELECT DISTINCT c.topic FROM classifications c
+                LEFT JOIN topic_categories tc ON tc.topic = c.topic
+               WHERE c.topic IS NOT NULL AND c.topic != ?
+                 AND tc.topic IS NULL
+               ORDER BY c.topic""",
+            (EMPTY_TOPIC,),
+        )
+    ]
+
+
+def build_category_prompt(categories, topics):
+    lines = [
+        "You sort the topics of Claude Code sessions into broad categories for a",
+        "personal time report. Use exactly one category per topic, from this list:",
+    ]
+    for name, description in categories.items():
+        lines.append("  %s: %s" % (name, description))
+    lines.append(
+        "  %s: fits none of the above" % FALLBACK_CATEGORY
+    )
+    lines += [
+        "",
+        "Return ONLY a JSON object that maps every topic to its category, no prose",
+        'and no code fence: {"topic-one": "category", "topic-two": "category"}',
+        "",
+        "Topics:",
+    ]
+    lines += topics
+    return "\n".join(lines)
+
+
+def parse_category_reply(text, topics, categories):
+    """Map each requested topic to an allowed category; anything else is 'other'."""
+    cleaned = FENCE_RE.sub("", text.strip())
+    start, end = cleaned.find("{"), cleaned.rfind("}")
+    if start == -1 or end == -1:
+        raise ValueError("no JSON object in reply")
+    data = json.loads(cleaned[start : end + 1])
+    if not isinstance(data, dict):
+        raise ValueError("reply is not a JSON object")
+    allowed = set(categories)
+    return {
+        t: data[t] if data.get(t) in allowed else FALLBACK_CATEGORY
+        for t in topics
+    }
+
+
+def categorise(con, cfg, dry_run):
+    """Assign a category to every topic that has none. Needs cfg['categories']."""
+    categories = cfg.get("categories") or {}
+    if not categories:
+        print("no categories configured; add 'categories' to config.json")
+        return
+    topics = uncategorised_topics(con)
+    if not topics:
+        print("every topic has a category")
+        return
+    batches = list(chunks(topics, TOPICS_PER_CATEGORY_CALL))
+    if dry_run:
+        print("%d topics without a category -> %d calls" % (len(topics), len(batches)))
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    total_cost, done = 0.0, 0
+    for batch in batches:
+        text, cost, _usage = call_model(
+            build_category_prompt(categories, batch), cfg["model"]
+        )
+        total_cost += cost
+        mapping = parse_category_reply(text, batch, categories)
+        con.executemany(
+            "INSERT OR REPLACE INTO topic_categories (topic, category, assigned_at)"
+            " VALUES (?,?,?)",
+            [(t, c, now) for t, c in mapping.items()],
+        )
+        con.commit()
+        done += len(mapping)
+    print(
+        "categorised %d topics in %d calls, list price USD %.3f"
+        % (done, len(batches), total_cost)
+    )
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true", help="estimate only, call nothing")
@@ -319,6 +564,16 @@ def main():
         action="store_true",
         help="drop all topics and prompt kinds, then classify again",
     )
+    ap.add_argument(
+        "--label-gaps",
+        action="store_true",
+        help="only label prompts that have no kind yet, then stop",
+    )
+    ap.add_argument(
+        "--categorize",
+        action="store_true",
+        help="sort topics without a category into the configured categories",
+    )
     args = ap.parse_args()
 
     cfg = load_config()
@@ -326,6 +581,12 @@ def main():
     batch_size = args.batch_size or cfg["batch_size"]
 
     con = connect()
+    if args.categorize:
+        categorise(con, cfg, args.dry_run)
+        return
+    if args.label_gaps:
+        label_gaps(con, cfg, args.dry_run, batch_size)
+        return
     if args.reset:
         print("dropped %d cached classifications" % reset(con))
     empty = mark_empty_sessions(con)

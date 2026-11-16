@@ -19,7 +19,12 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import WEEKLY_DIR, connect, load_config  # noqa: E402
+from common import (  # noqa: E402
+    FALLBACK_CATEGORY,
+    WEEKLY_DIR,
+    connect,
+    load_config,
+)
 from signals import (  # noqa: E402
     fmt_duration,
     fmt_ratio,
@@ -52,17 +57,33 @@ def previous_weeks(n):
     return weeks
 
 
-def load_week(con, iso_week):
-    """Sessions and prompts of one week, grouped by topic."""
+def load_week(con, iso_week, use_categories=False, hidden=()):
+    """Sessions and prompts of one week, plus the number of hidden sessions.
+
+    The "topic" key of each session holds the group label: the broad category
+    when use_categories is set, otherwise the topic itself. Sessions of a hidden
+    category are left out and only counted.
+    """
     start, end = week_bounds(iso_week)
+    if use_categories:
+        label = (
+            "CASE WHEN c.session_id IS NULL THEN '(unclassified)'"
+            " ELSE COALESCE(tc.category, '%s') END" % FALLBACK_CATEGORY
+        )
+    else:
+        label = "COALESCE(c.topic, '(unclassified)')"
     sessions = con.execute(
-        """SELECT s.*, COALESCE(c.topic, '(unclassified)') AS topic
+        """SELECT s.*, %s AS topic
              FROM sessions s
              LEFT JOIN classifications c USING (session_id)
+             LEFT JOIN topic_categories tc ON tc.topic = c.topic
             WHERE s.started_at >= ? AND s.started_at < ?
-              AND s.n_user_prompts > 0""",
+              AND s.n_user_prompts > 0""" % label,
         (start.isoformat(), end.isoformat()),
     ).fetchall()
+    kept = [s for s in sessions if s["topic"] not in hidden]
+    hidden_count = len(sessions) - len(kept)
+    sessions = kept
     ids = [r["session_id"] for r in sessions]
     prompts = []
     if ids:
@@ -71,7 +92,7 @@ def load_week(con, iso_week):
             % ",".join("?" * len(ids)),
             ids,
         ).fetchall()
-    return sessions, prompts
+    return sessions, prompts, hidden_count
 
 
 def group_by_topic(sessions, prompts, threshold):
@@ -89,9 +110,11 @@ def group_by_topic(sessions, prompts, threshold):
     }
 
 
-def render_week(con, iso_week, threshold):
+def render_week(con, iso_week, threshold, use_categories=False, hidden=()):
     """Return the report for one week as a list of text lines."""
-    sessions, prompts = load_week(con, iso_week)
+    sessions, prompts, hidden_count = load_week(
+        con, iso_week, use_categories, hidden
+    )
     start, end = week_bounds(iso_week)
     out = []
     out.append(
@@ -125,6 +148,10 @@ def render_week(con, iso_week, threshold):
         "        %d interactive, %d background jobs"
         % (interactive, len(sessions) - interactive)
     )
+    if hidden_count:
+        out.append(
+            "        %d automatic sessions are not counted" % hidden_count
+        )
     out.append("")
 
     groups = group_by_topic(sessions, prompts, threshold)
@@ -252,7 +279,13 @@ def main():
             continue
         if i:
             print("\n" + "=" * 72 + "\n")
-        lines = render_week(con, wk, threshold)
+        lines = render_week(
+            con,
+            wk,
+            threshold,
+            bool(cfg["categories"]),
+            tuple(cfg["hidden_categories"]),
+        )
         print("\n".join(lines))
         if args.write_snapshot:
             os.makedirs(WEEKLY_DIR, exist_ok=True)

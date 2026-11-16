@@ -254,6 +254,117 @@ class ExternalResultTest(unittest.TestCase):
         self.assertEqual(signals.result_status(row, 50000), "produced")
 
 
+class LabelGapsTest(unittest.TestCase):
+    """The gap pass labels what the first pass left out, and nothing else."""
+
+    @classmethod
+    def setUpClass(cls):
+        import classify
+
+        cls.classify = classify
+        cls.con = connect()
+        cls.con.execute(
+            "INSERT INTO sessions (session_id, transcript_path, transcript_mtime,"
+            " n_user_prompts) VALUES ('gap-s1', '/x', 0, 45)"
+        )
+        # 45 prompts. Turns 1-40 are labelled except turn 3; turns 41-45 never were.
+        for turn in range(1, 46):
+            kind = "task" if turn <= 40 and turn != 3 else None
+            cls.con.execute(
+                "INSERT INTO prompts (session_id, turn, text_head, kind)"
+                " VALUES ('gap-s1', ?, ?, ?)",
+                (turn, "prompt %d" % turn, kind),
+            )
+        cls.con.commit()
+        cls.segments = [
+            s for s in classify.unlabelled_segments(cls.con)
+            if s["session_id"] == "gap-s1"
+        ]
+
+    def test_a_gap_inside_the_cap_and_the_prompts_past_it_both_form_segments(self):
+        self.assertEqual(len(self.segments), 2)
+        self.assertEqual(
+            [len(s["prompts"]) for s in self.segments], [40, 5]
+        )
+
+    def test_labelled_prompts_are_shown_as_context(self):
+        text = self.classify.build_segment_prompt(self.segments[:1])
+        self.assertIn("1 [task]: prompt 1", text)
+        self.assertIn("\n3: prompt 3", text)
+
+    def test_apply_fills_gaps_and_never_replaces_a_stored_kind(self):
+        reply = {
+            1: {"kinds": {"3": "correction", "1": "steer"}},
+            2: {"kinds": {"41": "task", "45": "bogus"}},
+        }
+        labelled = self.classify.apply_kinds(self.con, self.segments, reply)
+        self.assertEqual(labelled, 2)  # turn 3 and turn 41
+        kinds = dict(
+            self.con.execute(
+                "SELECT turn, kind FROM prompts WHERE session_id='gap-s1'"
+                " AND turn IN (1, 3, 41, 45)"
+            ).fetchall()
+        )
+        self.assertEqual(kinds, {1: "task", 3: "correction", 41: "task", 45: None})
+
+
+class CategoryTest(unittest.TestCase):
+    """Topics are grouped into broad categories, and some categories are hidden."""
+
+    CATEGORIES = {"build": "code and tests", "auto": "tool calls"}
+
+    def test_reply_keeps_allowed_categories_and_sends_the_rest_to_other(self):
+        import classify
+
+        text = '```json\n{"fix-bug": "build", "warmup": "auto", "x": "nonsense"}\n```'
+        mapping = classify.parse_category_reply(
+            text, ["fix-bug", "warmup", "x", "missing"], self.CATEGORIES
+        )
+        self.assertEqual(
+            mapping,
+            {"fix-bug": "build", "warmup": "auto", "x": "other", "missing": "other"},
+        )
+
+    def test_week_groups_by_category_and_hides_automatic_sessions(self):
+        import report
+
+        con = connect()
+        rows = [
+            ("cat-s1", "fix-bug", "build"),
+            ("cat-s2", "add-tests", "build"),
+            ("cat-s3", "warmup", "auto"),
+            ("cat-s4", "odd-job", None),  # topic without a category
+        ]
+        for sid, topic, category in rows:
+            con.execute(
+                "INSERT INTO sessions (session_id, transcript_path,"
+                " transcript_mtime, started_at, n_user_prompts)"
+                " VALUES (?, '/x', 0, '2020-03-03T10:00:00+00:00', 1)",
+                (sid,),
+            )
+            con.execute(
+                "INSERT INTO classifications (session_id, topic) VALUES (?, ?)",
+                (sid, topic),
+            )
+            if category:
+                con.execute(
+                    "INSERT INTO topic_categories (topic, category)"
+                    " VALUES (?, ?)",
+                    (topic, category),
+                )
+        con.commit()
+        sessions, _prompts, hidden = report.load_week(
+            con, "2020-W10", use_categories=True, hidden=("auto",)
+        )
+        labels = sorted(s["topic"] for s in sessions)
+        self.assertEqual(labels, ["build", "build", "other"])
+        self.assertEqual(hidden, 1)
+        # Without categories the week is grouped by topic and nothing is hidden.
+        sessions, _prompts, hidden = report.load_week(con, "2020-W10")
+        self.assertEqual(len(sessions), 4)
+        self.assertEqual(hidden, 0)
+
+
 class MigrationTest(unittest.TestCase):
     def test_old_database_gets_the_new_columns_as_null(self):
         import sqlite3

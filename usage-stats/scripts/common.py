@@ -38,6 +38,9 @@ PROMPT_KINDS = (
     "meta",
 )
 
+# Category for a topic that fits none of the configured ones.
+FALLBACK_CATEGORY = "other"
+
 DEFAULT_CONFIG = {
     "model": "claude-haiku-4-5-20251001",
     "batch_size": 10,
@@ -47,6 +50,15 @@ DEFAULT_CONFIG = {
     "ticket_prefixes": [],
     # Free-text hints that steer topic naming, e.g. ["billing", "infra"].
     "topic_hints": [],
+    # Broad groups the report uses instead of single topics. A topic names one
+    # subject and most topics occur once, so single topics cannot be compared.
+    # Maps a category name to a one-line description for the model, for example
+    # {"billing": "invoices and payments", "infra": "servers and deployment"}.
+    # Empty means the report groups by topic. A topic that fits no category goes
+    # to FALLBACK_CATEGORY.
+    "categories": {},
+    # Categories left out of the report, for example calls made by tools.
+    "hidden_categories": [],
     # A session produced a result when it changed state outside the chat. File
     # edits and commits are always counted. These patterns add the write calls
     # that leave no file edit behind. Names only approximate the property, so a
@@ -143,6 +155,12 @@ CREATE TABLE IF NOT EXISTS classifications (
   classified_at TEXT,
   batch_tokens_in INTEGER,
   batch_tokens_out INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS topic_categories (
+  topic TEXT PRIMARY KEY,
+  category TEXT NOT NULL,
+  assigned_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS runs (

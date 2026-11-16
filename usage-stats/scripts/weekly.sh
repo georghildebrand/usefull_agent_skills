@@ -37,6 +37,8 @@ echo "=== $(date -u +%FT%TZ) daily usage-stats run"
 # Skip classification when the model cannot be reached, so the report still runs.
 if command -v claude >/dev/null 2>&1; then
   "$PY" "$HERE/classify.py" || echo "classify failed, topics may be incomplete" >&2
+  "$PY" "$HERE/classify.py" --label-gaps || echo "label-gaps failed" >&2
+  "$PY" "$HERE/classify.py" --categorize || echo "categorize failed" >&2
 else
   echo "claude CLI not found, skipping classification" >&2
 fi
