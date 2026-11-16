@@ -21,7 +21,7 @@ def build_server(
     # WARNING level: the SDK must not log tool arguments or results.
     mcp = MCPServer(
         "local-llm-guard",
-        instructions=service.instructions_text(auto),
+        instructions=service.instructions_text(auto, os.environ.get("SENSITIVE_CANARY_SKIP_TOOLS")),
         log_level="WARNING",
     )
 

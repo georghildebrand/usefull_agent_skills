@@ -51,13 +51,27 @@ claude mcp add --scope user -e LOCAL_LLM_GUARD_AUTO=1 local-llm-guard -- uv run 
 The server sends instructions to Claude Code. When the `sensitive-canary` hook blocks a read, or you say a file holds customer or personal data, Claude Code:
 
 1. Tells you in one line which file was blocked and asks if it may hand the file to the local model. (With `LOCAL_LLM_GUARD_AUTO=1` it skips the question.)
-2. Prints one command line for you to run with `!`, then stops and waits. See the next section.
+2. Calls `local_ask`, `local_task` or `local_edit` directly, if the hook lets these tools through (see the next section). Otherwise it prints one command line for you to run with `!`, then stops and waits.
 
 A "yes" covers one file only.
 
+## Let the tools through sensitive-canary (0.17.0 or newer)
+
+By default the `sensitive-canary` hook also blocks the MCP tool calls, because the path of the blocked file is in the tool input. sensitive-canary 0.17.0 can skip named MCP tools. Add this to the `env` block of `~/.claude/settings.json` and start a new Claude Code session:
+
+```json
+"env": {
+  "SENSITIVE_CANARY_SKIP_TOOLS": "mcp__local-llm-guard__*"
+}
+```
+
+The server reads the same variable when it starts. If the value covers `local_ask`, `local_task` and `local_edit`, the instructions tell Claude Code to call the tools directly. A plain `Read` of the blocked file stays blocked. If the variable is missing or covers fewer tools, the instructions stay as described in the next section.
+
+The hook then checks neither the input nor the output of these tools. The masking and the output filter in this server are the only checks left.
+
 ## Use without MCP (when sensitive-canary blocks the tool call)
 
-The `sensitive-canary` hook also blocks the MCP tool calls, because the path of the blocked file is in the tool input. So Claude Code prints a command, and you run it yourself with `!` in Claude Code:
+Without `SENSITIVE_CANARY_SKIP_TOOLS`, Claude Code prints a command, and you run it yourself with `!` in Claude Code:
 
 ```bash
 ! uv run --directory <this folder> local-llm-guard ask '/abs/path/file.txt' -q 'Which port is used?'

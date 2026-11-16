@@ -61,29 +61,64 @@ Small files only (at most 5 files per call). If a tool says a file does not fit,
 Never try to read a blocked file in another way.
 """
 
-_COMMAND_RULES = (
-    "Do not call local_ask, local_task or local_edit on a blocked file: the canary blocks "
-    "those calls too, so do not retry the blocked call. Print ONE line with the exact "
-    "command for the user to run, then stop and wait for the user's next message. The "
-    "command runs as the user, outside the hook, and only the filtered answer lands in the "
-    "chat. Formats:\n"
+_COMMAND_FORMATS = (
     "! uv run --directory {pkg} local-llm-guard ask '<abs path>' -q '<question>'\n"
     "! uv run --directory {pkg} local-llm-guard task '<abs path>' -i '<instruction>'\n"
     "! uv run --directory {pkg} local-llm-guard edit '<abs path>' -i '<instruction>'\n"
     "Quote paths and text with single quotes. Escape a single quote inside the text as "
     "'\\''. ask and task take up to 5 paths."
 )
-_STEPS_ASK = (
+_COMMAND_RULES = (
+    "Do not call local_ask, local_task or local_edit on a blocked file: the canary blocks "
+    "those calls too, so do not retry the blocked call. Print ONE line with the exact "
+    "command for the user to run, then stop and wait for the user's next message. The "
+    "command runs as the user, outside the hook, and only the filtered answer lands in the "
+    "chat. Formats:\n" + _COMMAND_FORMATS
+)
+_CALL_RULES = (
+    "SENSITIVE_CANARY_SKIP_TOOLS lets local_ask, local_task and local_edit through the "
+    "canary hook, so call the tool directly with the blocked file's absolute path. A plain "
+    "Read of that file stays blocked; do not retry it. If the tool call is blocked anyway, "
+    "do not retry it either: print ONE line with the exact command for the user to run, "
+    "then stop and wait for the user's next message. Formats:\n" + _COMMAND_FORMATS
+)
+_ASK_FIRST = (
     "1. Tell the user in one short line which file was blocked and why, and ask whether to "
     "hand it to the local model. Mention the allow tags ([allow-secret], [allow-pii], "
     "[allow-all]) as the other option.\n"
-    "2. Print the command only after the user says yes. A yes covers that one file only; "
-    "ask again for any other file. " + _COMMAND_RULES
+    "2. {action} only after the user says yes. A yes covers that one file only; "
+    "ask again for any other file. "
 )
-_STEPS_DIRECT = (
-    "1. Do not ask first. Print the command directly and add one line saying which file "
-    "you hand over and why. " + _COMMAND_RULES
+_NO_ASK = (
+    "1. Do not ask first. {action} directly and add one line saying which file "
+    "you hand over and why. "
 )
+
+# Tools that take a file path. All three must pass the hook before the
+# instructions tell Claude to call them directly.
+_FILE_TOOLS = ("local_ask", "local_task", "local_edit")
+_TOOL_PREFIX = "mcp__local-llm-guard__"
+
+
+def _entry_covers(entry: str, full: str) -> bool:
+    """Same matching as sensitive-canary 0.17.0: an exact name, or a trailing `*`
+    after the server name. A `*` entry does not cover tool names that start
+    with `_` or contain `__`."""
+    if entry == full:
+        return True
+    if not entry.endswith("*") or "*" in entry[:-1]:
+        return False
+    prefix = entry[:-1]
+    if not prefix.startswith(_TOOL_PREFIX) or not full.startswith(prefix):
+        return False
+    tool = full[len(_TOOL_PREFIX) :]
+    return not tool.startswith("_") and "__" not in tool
+
+
+def canary_skips_file_tools(value: str | None) -> bool:
+    """True when SENSITIVE_CANARY_SKIP_TOOLS covers every file tool of this server."""
+    entries = [e.strip() for e in (value or "").split(",") if e.strip()]
+    return all(any(_entry_covers(e, _TOOL_PREFIX + tool) for e in entries) for tool in _FILE_TOOLS)
 
 
 def package_dir() -> str:
@@ -91,8 +126,13 @@ def package_dir() -> str:
     return str(Path(__file__).resolve().parents[2])
 
 
-def instructions_text(auto: bool) -> str:
-    steps = (_STEPS_DIRECT if auto else _STEPS_ASK).replace("{pkg}", package_dir())
+def instructions_text(auto: bool, canary_skip: str | None = None) -> str:
+    direct_call = canary_skips_file_tools(canary_skip)
+    action = "Call the tool" if direct_call else "Print the command"
+    rules = _CALL_RULES if direct_call else _COMMAND_RULES
+    steps = ((_NO_ASK if auto else _ASK_FIRST).replace("{action}", action) + rules).replace(
+        "{pkg}", package_dir()
+    )
     return _INSTRUCTIONS.replace("{steps}", steps).replace(
         "{only}", "only if" if auto else "only after"
     )
