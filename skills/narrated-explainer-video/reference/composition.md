@@ -91,24 +91,24 @@ stays hidden until its moment. No conditional rendering is needed.
 ```tsx
 import data from "./scenes.json";
 
-const BODIES = [S1, S2, S3 /* one component per narration file, same order */];
-const LEAD_FRAMES = Math.round(data.lead * data.fps);
+const BODIES = [S1, S2, S3 /* one component per scene in narration.json, same order */];
 export const TOTAL_FRAMES = data.scenes.reduce((a, s) => a + s.durationInFrames, 0);
 
 export const Video: React.FC = () => (
   <AbsoluteFill style={{ background: C.bg }}>
     <Backdrop />
+    {/* music runs under the whole video; keep it well below the voice */}
+    <Audio src={staticFile("audio/music.wav")} volume={0.12} />
     <Series>
       {data.scenes.map((s, i) => {
         const Body = BODIES[i];
         return (
           <Series.Sequence key={s.id} durationInFrames={s.durationInFrames} name={s.label}>
-            {/* the audio must sit inside its own scene, or it plays over the wrong one */}
-            <Sequence from={LEAD_FRAMES} name="narration">
-              <Audio src={staticFile(s.audio)} />
-            </Sequence>
+            {/* the audio must sit inside its own scene, or it plays over the wrong one.
+                The scene WAV already contains its lead-in, so it starts at frame 0. */}
+            <Audio src={staticFile(s.audio)} />
             <AbsoluteFill>
-              <Stage><Body /></Stage>
+              <Stage><Body lines={s.lines} /></Stage>
               <Hud index={s.id} total={data.scenes.length} label={s.label} />
             </AbsoluteFill>
           </Series.Sequence>
@@ -128,14 +128,27 @@ Register it with the total length taken from the same file:
 
 ## Timing a scene against its narration
 
-`scenes.json` records how long each scene speaks. Place the reveals inside that
-window by ear: read the narration, estimate which second each sentence starts, and
-multiply by the frame rate. A delay of `150` at 30 frames per second means the
-element appears five seconds into the scene, half a second after the voice has
-started (the lead-in).
+`scenes.json` records the start frame of every narration line, measured from the real
+audio. Pin each element to the line it illustrates. Never type a frame number.
 
-Exact word-level synchronisation needs a forced aligner and is rarely worth it. Being
-within half a second reads as deliberate.
+```tsx
+type Line = { text: string; startFrame: number; endFrame: number };
+
+const Problem: React.FC<{ lines: Line[] }> = ({ lines }) => (
+  <>
+    <Reveal delay={lines[0].startFrame}><Headline>Releases drift</Headline></Reveal>
+    <Pop delay={lines[1].startFrame}><DriftTable /></Pop>
+  </>
+);
+```
+
+An element appears when its line starts. If you reword a sentence and run
+`build-audio.py` again, the new start frame is used and the sync holds. If a scene has
+two things to show for one line, add a second line to `narration.json` instead of
+adding a frame offset.
+
+Exact word-level synchronisation needs a forced aligner and is rarely worth it. One
+line is the finest unit; the picture lands within the line, which reads as deliberate.
 
 ## Drawing the subject's own mechanism
 
@@ -148,5 +161,6 @@ const step = Math.round(interpolate(frame, [from, to], [0, totalSteps],
   { extrapolateLeft: "clamp", extrapolateRight: "clamp" }));
 ```
 
-Then draw the state at `step`. No timers, no animation state, and any frame can be
+Use a line's `startFrame` and `endFrame` as `from` and `to`, so the drawing runs while
+the voice describes it. Then draw the state at `step`. No timers, no animation state, and any frame can be
 rendered on its own — which is what makes a single-frame still check possible.
