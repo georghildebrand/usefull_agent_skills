@@ -17,7 +17,7 @@ fi
 
 patterns="$(mktemp)"
 trap 'rm -f "$patterns"' EXIT
-python3 "$here/presets.py" "$private" > "$patterns"
+python3 "$here/presets.py" "$private" > "$patterns" || { echo "cannot read private file" >&2; exit 2; }
 
 targets=("$root/skills/dashboard")
 for e in $extra; do
@@ -25,9 +25,14 @@ for e in $extra; do
 done
 [ -s "$patterns" ] || { echo clean; exit 0; }
 
-hits="$(grep -rnIiF -f "$patterns" "${targets[@]}" 2>/dev/null | cut -d: -f1,2)"
-if [ -n "$hits" ]; then
-  echo "$hits" | sed "s#^$root/##"
+raw="$(grep -rnIiF -f "$patterns" "${targets[@]}")"
+rc=$?
+if [ "$rc" -gt 1 ]; then
+  echo "grep failed (status $rc), check did not run" >&2
+  exit 2
+fi
+if [ "$rc" -eq 0 ]; then
+  echo "$raw" | cut -d: -f1,2 | sed "s#^$root/##"
   exit 1
 fi
 echo clean

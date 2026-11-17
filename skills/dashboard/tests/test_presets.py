@@ -84,19 +84,62 @@ class PresetTests(unittest.TestCase):
             priv = os.path.join(t, "p.json")
             shutil_copy(PRIVATE, priv)
             # strings under 3 characters are ignored
+            os.makedirs(os.path.join(t, "skills", "dashboard"))
             self.assertNotIn("ab", presets.secret_values(priv))
             self.assertIn("ACME", presets.secret_values(priv))
             r = subprocess.run(["bash", CHECK, priv], capture_output=True, text=True,
                                env={**os.environ, "DASHBOARD_CHECK_ROOT": t, "DASHBOARD_CHECK_EXTRA": ""})
             self.assertEqual(r.returncode, 0, r.stdout)
             self.assertIn("clean", r.stdout)
-            os.makedirs(os.path.join(t, "skills", "dashboard"))
             with open(os.path.join(t, "skills", "dashboard", "x.md"), "w") as f:
                 f.write("hello\nthe ACME corp\n")
             r = subprocess.run(["bash", CHECK, priv], capture_output=True, text=True,
                                env={**os.environ, "DASHBOARD_CHECK_ROOT": t, "DASHBOARD_CHECK_EXTRA": ""})
             self.assertEqual(r.returncode, 1)
             self.assertNotIn("ACME", r.stdout + r.stderr)
+            self.assertIn("x.md:2", r.stdout)
+
+    def _run_check(self, priv, root):
+        return subprocess.run(["bash", CHECK, priv], capture_output=True, text=True,
+                              env={**os.environ, "DASHBOARD_CHECK_ROOT": root, "DASHBOARD_CHECK_EXTRA": ""})
+
+    def test_check_clean_fails_on_unreadable_private_file(self):
+        for content in ("{bad", ""):
+            with tempfile.TemporaryDirectory() as t:
+                priv = os.path.join(t, "p.json")
+                with open(priv, "w") as f:
+                    f.write(content)
+                os.makedirs(os.path.join(t, "skills", "dashboard"))
+                r = self._run_check(priv, t)
+                self.assertNotEqual(r.returncode, 0)
+                self.assertNotIn("clean", r.stdout)
+                self.assertNotIn("Traceback", r.stderr)
+
+    def test_tile_kinds_are_not_secrets(self):
+        with tempfile.TemporaryDirectory() as t:
+            priv = os.path.join(t, "p.json")
+            presets.add_tile("work", "todos", priv)
+            presets.add_tile("work", "note", priv)
+            presets.set_url("work", "https://example.invalid/secretsite", priv)
+            self.assertEqual(presets.secret_values(priv), ["https://example.invalid/secretsite"])
+            os.makedirs(os.path.join(t, "skills", "dashboard"))
+            with open(os.path.join(t, "skills", "dashboard", "x.md"), "w") as f:
+                f.write("todos note feed list\n")
+            r = self._run_check(priv, t)
+            self.assertEqual(r.returncode, 0, r.stdout)
+            self.assertIn("clean", r.stdout)
+
+    def test_multiline_secret_is_checked_per_line(self):
+        with tempfile.TemporaryDirectory() as t:
+            priv = os.path.join(t, "p.json")
+            with open(priv, "w") as f:
+                json.dump({"denyList": ["line1\nline2"]}, f)
+            self.assertEqual(presets.secret_values(priv), ["line1", "line2"])
+            os.makedirs(os.path.join(t, "skills", "dashboard"))
+            with open(os.path.join(t, "skills", "dashboard", "x.md"), "w") as f:
+                f.write("a\nline2 here\n")
+            r = self._run_check(priv, t)
+            self.assertEqual(r.returncode, 1)
             self.assertIn("x.md:2", r.stdout)
 
     def test_check_clean_no_private_file(self):

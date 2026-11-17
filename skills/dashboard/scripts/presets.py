@@ -73,17 +73,36 @@ def _strings(node):
 
 
 def secret_values(private_path=DEFAULT_PRIVATE):
-    """Every string in the private file (deny list included), unique, length >= 3."""
+    """Secret strings from the private file, unique, length >= 3.
+
+    Only keys that hold secrets count: per preset `url`, `sources`, `filters`,
+    plus the top-level `denyList`. Tile layouts and kind names are skipped.
+    A multi-line value is split into its lines.
+    """
+    data = _read(private_path)
+    if not isinstance(data, dict):
+        raise ValueError("private file must hold a JSON object")
+    nodes = [data.get("denyList")]
+    for preset in (data.get("presets") or {}).values():
+        if isinstance(preset, dict):
+            nodes += [preset.get("url"), preset.get("sources"), preset.get("filters")]
     seen = []
-    for s in _strings(_read(private_path)):
-        if len(s) >= 3 and s not in seen:
-            seen.append(s)
+    for node in nodes:
+        for s in _strings(node):
+            for line in s.splitlines():
+                line = line.strip()
+                if len(line) >= 3 and line not in seen:
+                    seen.append(line)
     return seen
 
 
 if __name__ == "__main__":
     import sys
-    # Used by check-clean.sh: print one value per line.
-    for v in secret_values(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_PRIVATE):
-        if "\n" not in v:
-            print(v)
+    # Used by check-clean.sh: print one value per line. Exit 2 if the file is unreadable.
+    try:
+        values = secret_values(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_PRIVATE)
+    except (ValueError, OSError) as e:
+        print("cannot read private file: %s" % type(e).__name__, file=sys.stderr)
+        sys.exit(2)
+    for v in values:
+        print(v)
