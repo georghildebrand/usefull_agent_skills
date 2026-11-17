@@ -15,24 +15,32 @@ if [ ! -f "$private" ]; then
   exit 0
 fi
 
-patterns="$(mktemp)"
-trap 'rm -f "$patterns"' EXIT
-python3 "$here/presets.py" "$private" > "$patterns" || { echo "cannot read private file" >&2; exit 2; }
+subs="$(mktemp)"
+words="$(mktemp)"
+trap 'rm -f "$subs" "$words"' EXIT
+python3 "$here/presets.py" "$private" > "$subs" || { echo "cannot read private file" >&2; exit 2; }
+python3 "$here/presets.py" "$private" --words > "$words" || { echo "cannot read private file" >&2; exit 2; }
 
 targets=("$root/skills/dashboard")
 for e in $extra; do
   [ -e "$root/$e" ] && targets+=("$root/$e")
 done
-[ -s "$patterns" ] || { echo clean; exit 0; }
-
-raw="$(grep -rnIiF -f "$patterns" "${targets[@]}")"
-rc=$?
-if [ "$rc" -gt 1 ]; then
-  echo "grep failed (status $rc), check did not run" >&2
-  exit 2
-fi
-if [ "$rc" -eq 0 ]; then
-  echo "$raw" | cut -d: -f1,2 | sed "s#^$root/##"
+# Substring patterns match anywhere; word patterns (preset names, tile ids,
+# split source parts) match only as whole words, so "work" does not hit "network".
+hits=""
+for mode in sub word; do
+  if [ "$mode" = sub ]; then file="$subs"; flags="-rnIiF"; else file="$words"; flags="-rnIiwF"; fi
+  [ -s "$file" ] || continue
+  raw="$(grep $flags -f "$file" "${targets[@]}")"
+  rc=$?
+  if [ "$rc" -gt 1 ]; then
+    echo "grep failed (status $rc), check did not run" >&2
+    exit 2
+  fi
+  [ "$rc" -eq 0 ] && hits="$hits$raw"$'\n'
+done
+if [ -n "$hits" ]; then
+  printf '%s' "$hits" | sed '/^$/d' | cut -d: -f1,2 | sed "s#^$root/##" | sort -u
   exit 1
 fi
 echo clean

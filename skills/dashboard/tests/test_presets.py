@@ -240,6 +240,26 @@ class PresetTests(unittest.TestCase):
             self._write_repo_file(t, "list note note-2\n")
             self.assertEqual(self._run_check(priv, t).returncode, 0)
 
+    def test_common_word_preset_matches_whole_words_only(self):
+        with tempfile.TemporaryDirectory() as t:
+            priv = os.path.join(t, "p.json")
+            with open(priv, "w") as f:
+                json.dump({"presets": {"work": {"sources": {"jira": "demo project"}}}}, f)
+            subs, words = presets.secret_patterns(priv)
+            self.assertEqual(subs, ["demo project"])
+            self.assertEqual(words, ["work", "demo", "project"])
+            self._write_repo_file(t, "network setup, projected values, demolition\n")
+            self.assertEqual(self._run_check(priv, t).returncode, 0)
+            self._write_repo_file(t, "the work log\n")
+            self.assertEqual(self._run_check(priv, t).returncode, 1)
+            with open(priv, "w") as f:
+                json.dump({"allowList": ["Work", "project"],
+                           "presets": {"work": {"sources": {"jira": "demo project"}}}}, f)
+            self._write_repo_file(t, "the work log for this project\n")
+            self.assertEqual(self._run_check(priv, t).returncode, 0)
+            self._write_repo_file(t, "see the demo project\n")
+            self.assertEqual(self._run_check(priv, t).returncode, 1)
+
     def test_check_clean_no_private_file(self):
         r = subprocess.run(["bash", CHECK, "/nonexistent/p.json"], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0)

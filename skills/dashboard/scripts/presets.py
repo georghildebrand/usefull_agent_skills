@@ -191,61 +191,82 @@ def _kind_id(tid):
     return re.match(r"^(%s)(-\d+)?\Z" % "|".join(TILE_KINDS), tid) is not None
 
 
-def secret_values(private_path=DEFAULT_PRIVATE, repo_dir=SKILL_DIR):
-    """Secret strings from the private file, unique, length >= 3.
+def secret_patterns(private_path=DEFAULT_PRIVATE, repo_dir=SKILL_DIR):
+    """Secret strings from the private file, split by how check-clean.sh matches them.
 
-    These fields are checked, and nothing else:
-    - top-level `denyList`: each entry as written;
-    - each preset name (a key of `presets`), except names of repo presets
-      (<repo_dir>/presets/<name>.json, for example "global");
-    - per preset `url`, as written;
-    - per preset `sources`: each value as written, and each part split at
-      commas, semicolons and spaces ("ACME, DEMO" gives "ACME" and "DEMO");
-    - per preset `filters`: each value as written, and each part split at
-      commas and semicolons;
-    - per tile `id`, without the `list:` prefix. Ids made from a kind alone
-      (todos, note-2) and the kind names are skipped.
-    Every value is also split into its lines. Anything else that is secret
-    must go into `denyList`.
+    Returns (substrings, words). Both are unique, length >= 3, one per line of
+    the original value.
+    - substrings (matched anywhere, ignoring case): top-level `denyList`
+      entries; per preset `url`; per preset `sources` and `filters` values as
+      written.
+    - words (matched as whole words only, ignoring case, so a preset called
+      "work" does not hit "network"): each preset name, except names of repo
+      presets (<repo_dir>/presets/<name>.json, for example "global"); the parts
+      of `sources` values split at commas, semicolons and spaces ("ACME, DEMO"
+      gives "ACME" and "DEMO"); the parts of `filters` values split at commas
+      and semicolons; each tile `id` without the `list:` prefix. Ids made from
+      a kind alone (todos, note-2) and the kind names are skipped.
+    A value listed in the top-level `allowList` (ignoring case) is dropped from
+    both lists. Anything else that is secret must go into `denyList`.
     """
     data = _read(private_path)
     if not isinstance(data, dict):
         raise ValueError("private file must hold a JSON object")
     repo_names = _repo_names(repo_dir)
-    found = []  # (string, split pattern or None)
-    found += [(s, None) for s in _strings(data.get("denyList"))]
+    allow = {a.strip().lower() for a in _strings(data.get("allowList"))}
+    subs, words = [], []
+
+    def add(target, value):
+        for line in value.splitlines():
+            v = line.strip()
+            if len(v) >= 3 and v.lower() not in allow and v not in target:
+                target.append(v)
+
+    def add_split(value, sep):
+        for line in value.splitlines():
+            for part in re.split(sep, line):
+                add(words, part)
+
+    for s in _strings(data.get("denyList")):
+        add(subs, s)
     for name, preset in (data.get("presets") or {}).items():
         if name not in repo_names:
-            found.append((name, None))
+            add(words, name)
         if not isinstance(preset, dict):
             continue
-        found += [(s, None) for s in _strings(preset.get("url"))]
-        found += [(s, r"[,;\s]+") for s in _strings(preset.get("sources"))]
-        found += [(s, r"[,;]+") for s in _strings(preset.get("filters"))]
+        for s in _strings(preset.get("url")):
+            add(subs, s)
+        for s in _strings(preset.get("sources")):
+            add(subs, s)
+            add_split(s, r"[,;\s]+")
+        for s in _strings(preset.get("filters")):
+            add(subs, s)
+            add_split(s, r"[,;]+")
         for t in preset.get("tiles") or []:
             tid = t.get("id") if isinstance(t, dict) else None
             if isinstance(tid, str):
                 tid = tid[len("list:"):] if tid.startswith("list:") else tid
                 if not _kind_id(tid):
-                    found.append((tid, None))
-    seen = []
-    for s, sep in found:
-        for line in s.splitlines():
-            parts = [line] + (re.split(sep, line) if sep else [])
-            for part in parts:
-                part = part.strip()
-                if len(part) >= 3 and part not in seen:
-                    seen.append(part)
-    return seen
+                    add(words, tid)
+    return subs, words
+
+
+def secret_values(private_path=DEFAULT_PRIVATE, repo_dir=SKILL_DIR):
+    """All secret strings from secret_patterns, substrings first, unique."""
+    subs, words = secret_patterns(private_path, repo_dir)
+    return subs + [w for w in words if w not in subs]
 
 
 if __name__ == "__main__":
     import sys
-    # Used by check-clean.sh: print one value per line. Exit 2 if the file is unreadable.
+    # Used by check-clean.sh: print one value per line. "--words" prints the
+    # whole-word patterns, otherwise the substring patterns. Exit 2 if the file
+    # is unreadable.
+    args = [a for a in sys.argv[1:] if a != "--words"]
     try:
-        values = secret_values(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_PRIVATE)
+        subs, words = secret_patterns(args[0] if args else DEFAULT_PRIVATE)
     except (ValueError, OSError) as e:
         print("cannot read private file: %s" % type(e).__name__, file=sys.stderr)
         sys.exit(2)
-    for v in values:
+    for v in (words if "--words" in sys.argv[1:] else subs):
         print(v)
