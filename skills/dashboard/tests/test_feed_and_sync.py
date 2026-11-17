@@ -101,6 +101,21 @@ class PlanTests(unittest.TestCase):
         self.assertNotIn("TODO-4", self.rows)
         self.assertEqual(len(self.rows), 4)
 
+    def test_plan_skips_taken_back_mark(self):
+        # A mark taken back on an older page is stored as "" and is no target.
+        rows = plan_sync.plan({"T2": "", "T3": "later"}, {}, [
+            {"key": "T2", "status": "todo", "title": "y"},
+            {"key": "T3", "status": "todo", "title": "z"}], {"T2": "todo"})
+        self.assertEqual(rows, [])
+
+    def test_plan_seen_from_mark_time_survives_refresh(self):
+        # Mark set while T1 showed "todo" (todostate/seen); T1 then moved to
+        # in_progress in the source and a refresh rewrote todolists.
+        rows = plan_sync.plan({"T1": "done"}, {}, [
+            {"key": "T1", "status": "in_progress", "title": "x"}], {"T1": "todo"})
+        self.assertEqual(rows[0]["action"], "changed_in_source")
+        self.assertEqual(rows[0]["from"], "in_progress")
+
 
 if __name__ == "__main__":
     unittest.main()

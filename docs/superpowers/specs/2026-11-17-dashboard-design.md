@@ -135,7 +135,7 @@ Each tile has:
 
 | Tile | Source | Data documents | Writes back |
 |---|---|---|---|
-| ToDos | zotero2ai `todo_list` per project | `todolists/<project>`; page writes `todostate/flags`, `todostate/notes` | yes, through `/dashboard sync` (`todo_transition`) |
+| ToDos | zotero2ai `todo_list` per project | `todolists/<project>`; page writes `todostate/flags`, `todostate/seen` (status at mark time), `todostate/notes` | yes, through `/dashboard sync` (`todo_transition`) |
 | Sessions | `~/.claude/sessions/*.json` plus transcript change time | `sessions/list` | no |
 | Status to listen | text written by the session | `status/<id>`, menu over all | no |
 | Jira tickets | Jira REST search, assignee or reporter, open, project keys from the preset | `jira/open` | no |

@@ -225,7 +225,7 @@ function inlineScripts(html) {
   const out = [];
   const re = /<script(\s[^>]*)?>([\s\S]*?)<\/script>/g;
   let m;
-  while ((m = re.exec(html))) if (!/\ssrc=/.test(m[1] || '')) out.push(m[2]);
+  while ((m = re.exec(html))) if (!/\ssrc=|type="application\/json"/.test(m[1] || '')) out.push(m[2]);
   return out;
 }
 
@@ -270,4 +270,140 @@ test('page: the inline script parses and uses the agreed documents and texts', (
   }
   assert.ok(!/localStorage\.setItem\(KEY/.test(js), 'layout no longer goes to localStorage');
   for (const gone of ['statA', 'statB', 'sparkHtml', 'barsHtml']) assert.ok(!js.includes(gone), 'demo tile removed: ' + gone);
+});
+
+// ---- start layout from the preset ----
+
+test('presetLayout: preset tiles become meta/layout items; repeats get numbered ids', () => {
+  const global = JSON.parse(fs.readFileSync(path.join(ROOT, 'presets', 'global.json'), 'utf8'));
+  const items = T.presetLayout(global.tiles);
+  assert.deepEqual(items.map((i) => i.id), ['todos', 'jira', 'sessions', 'status', 'statustable', 'feed']);
+  assert.deepEqual(items[0], { id: 'todos', kind: 'todos', x: 0, y: 0, w: 6, h: 4 });
+  const two = T.presetLayout([{ kind: 'note', x: 0, y: 0, w: 3, h: 2 }, { kind: 'note', x: 3, y: 0, w: 3, h: 2 },
+    { kind: 'list', id: 'list:demo', x: 0, y: 2, w: 6, h: 4 }]);
+  assert.deepEqual(two.map((i) => i.id), ['note', 'note-2', 'list:demo']);
+});
+
+test('presetLayout: missing or malformed tiles give null', () => {
+  assert.equal(T.presetLayout(undefined), null);
+  assert.equal(T.presetLayout([]), null);
+  assert.equal(T.presetLayout([{ kind: 'list', x: 0, y: 0, w: 6, h: 4 }]), null, 'list tile needs list:<skill-id>');
+  assert.equal(T.presetLayout([{ kind: 'spark', x: 0, y: 0, w: 6, h: 4 }]), null);
+  assert.equal(T.presetLayout([{ kind: 'jira', x: 0, y: 0, w: 6 }]), null);
+});
+
+// ---- rows dropped for the size limit ----
+
+test('truncated: filters report the dropped rows and the caption says so', () => {
+  const jira = { v: 1, syncedAt: iso(NOW), source: 'jira', truncated: 192, items: [{ key: 'A-1', title: 'x', updatedAt: iso(NOW) }] };
+  const r = T.filterJira(jira, flt(), NOW);
+  assert.equal(r.truncated, 192);
+  assert.equal(T.truncatedNote(r.truncated), ' · 192 weitere wegen Größenlimit nicht gezeigt');
+  assert.equal(T.truncatedNote(0), '');
+  assert.equal(T.filterJira({ items: [] }, flt(), NOW).truncated, 0);
+  const todos = T.filterTodos([todoList([], { truncated: 2 }), todoList([], { id: 'p2', truncated: 5 }), todoList([])], flt(), NOW);
+  assert.equal(todos.truncated, 7, 'todos add up truncated over all lists');
+  assert.equal(T.filterFeed({ items: [], truncated: 4 }, {}, flt()).truncated, 4);
+  assert.equal(T.truncatedOf({ truncated: 'many' }), 0);
+  assert.equal(T.truncatedOf({ truncated: -1 }), 0);
+  assert.equal(T.truncatedOf(null), 0);
+});
+
+// ---- page.html run against fake browser objects ----
+
+// Runs the inline script with stub DOM, GridStack and db. Returns the handles a test needs.
+function runPage(html) {
+  const byId = {};
+  function el(extra) {
+    return Object.assign({ innerHTML: '', textContent: '', value: '', hidden: false, options: [], listeners: {},
+      addEventListener(t, f) { (this.listeners[t] = this.listeners[t] || []).push(f); },
+      querySelector() { return null; }, getAttribute() { return null; }, setAttribute() {},
+      matches() { return false; }, closest() { return null; } }, extra || {});
+  }
+  const layoutBlock = html.match(/<script type="application\/json" id="dashboard-layout">([\s\S]*?)<\/script>/);
+  const todoList = el();
+  const todos = el({ querySelector: (s) => (s === '[data-todo-list]' ? todoList : null) });
+  const document = {
+    activeElement: null,
+    getElementById(id) {
+      if (id === 'dashboard-layout') return layoutBlock ? { textContent: layoutBlock[1] } : null;
+      return (byId[id] = byId[id] || el());
+    },
+    querySelector(s) {
+      const m = s.match(/^meta\[name="([^"]+)"\]$/);
+      const meta = m && html.match(new RegExp('<meta name="' + m[1] + '" content="([^"]*)">'));
+      return meta ? { getAttribute: () => meta[1] } : null;
+    },
+    querySelectorAll(s) { return s === '[data-todos]' ? [todos] : []; },
+    addEventListener() {},
+  };
+  const grid = { loads: [], engine: { nodes: [] }, removeAll() { this.engine.nodes = []; },
+    // Array.from makes an array of this realm, so deepEqual accepts it.
+    load(ws) { this.loads.push(Array.from(ws, (w) => w.id));
+      this.engine.nodes = ws.map((w) => ({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h })); },
+    on() {}, getColumn() { return 12; }, setStatic() {}, addWidget() {}, removeWidget() {} };
+  const subs = {}, writes = [];
+  function ref(p) {
+    return { onSnapshot(cb) { subs[p] = cb; },
+      set(d) { writes.push(['set', p, JSON.parse(JSON.stringify(d))]); return Promise.resolve(); },
+      update(d) { writes.push(['update', p, JSON.parse(JSON.stringify(d))]); return Promise.resolve(); },
+      get() { return new Promise(() => {}); } };
+  }
+  const db = { doc: ref, collection: ref };
+  const ctx = { document, GridStack: { init: () => grid }, localStorage: { getItem: () => null, setItem() {} },
+    setTimeout: () => 0, clearTimeout() {}, console,
+    claude: { use: (n) => Promise.resolve(n === 'db' ? db : null) } };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'template', 'tiles.js'), 'utf8'), ctx);
+  vm.runInContext(inlineScripts(html)[0], ctx);
+  function doc(p, exists, data) { subs[p]({ exists, data: () => data, metadata: { hasPendingWrites: false } }); }
+  function coll(p, docs) { subs[p]({ docs: docs.map((d) => ({ id: d.id, data: () => d })) }); }
+  function change(attrs, value) {
+    const target = { value, matches: (s) => s === '[data-flag]', getAttribute: (a) => attrs[a] };
+    byId.grid.listeners.change.forEach((f) => f({ target }));
+  }
+  return { grid, writes, doc, coll, change, todoList, byId, flush: () => new Promise((r) => setImmediate(r)) };
+}
+
+test('page: start layout comes from the preset block; reset returns to it', () => {
+  const tiles = [{ kind: 'jira', x: 0, y: 0, w: 6, h: 4 }, { kind: 'list', id: 'list:demo', x: 6, y: 0, w: 6, h: 4 }];
+  const html = pageText();
+  assert.match(html, /<script type="application\/json" id="dashboard-layout">__LAYOUT__<\/script>/);
+  const p = runPage(html.replace('__LAYOUT__', JSON.stringify(tiles)));
+  assert.deepEqual(p.grid.loads[0], ['jira', 'list:demo']);
+  p.byId['btn-reset'].listeners.click[0]();
+  assert.deepEqual(p.grid.loads[p.grid.loads.length - 1], ['jira', 'list:demo']);
+  const plain = runPage(html);
+  assert.deepEqual(plain.grid.loads[0], ['todos', 'jira', 'sessions', 'status', 'statustable', 'feed'], 'unreplaced template falls back to the global tiles');
+});
+
+test('page: a mark stores the status seen at mark time, shows a hint after a source change, and taking it back removes it', async () => {
+  const p = runPage(pageText());
+  await p.flush();
+  const list = (status) => todoList([{ key: 'T1', title: 'x', status, updatedAt: iso(Date.now()) }], { truncated: 3 });
+  p.coll('todolists', [list('todo')]);
+  p.doc('todostate/flags', false, {});
+  p.doc('todostate/seen', false, {});
+  p.doc('todostate/notes', true, { T1: 'why' });
+  assert.match(p.todoList.innerHTML, /3 weitere wegen Größenlimit nicht gezeigt/);
+
+  p.change({ 'data-flag': 'T1', 'data-shown': 'todo' }, 'done');
+  await p.flush();
+  assert.deepEqual(p.writes, [['set', 'todostate/seen', { T1: 'todo' }], ['set', 'todostate/flags', { T1: 'done' }]]);
+
+  // The source moves T1 to in_progress; a refresh rewrites todolists.
+  p.doc('todostate/flags', true, { T1: 'done' });
+  p.doc('todostate/seen', true, { T1: 'todo' });
+  p.coll('todolists', [list('in_progress')]);
+  assert.match(p.todoList.innerHTML, /Der Status hat sich in zotero2ai geändert/);
+  assert.match(p.todoList.innerHTML, /data-confirm-flag="T1"/);
+
+  // Take the mark back: the first option has value ''.
+  p.writes.length = 0;
+  p.change({ 'data-flag': 'T1', 'data-shown': 'in_progress' }, '');
+  await p.flush();
+  assert.deepEqual(p.writes, [['set', 'todostate/flags', {}], ['set', 'todostate/seen', {}], ['set', 'todostate/notes', {}]]);
+  assert.ok(!JSON.stringify(p.writes).includes('""'), 'no empty-string mark is written');
+  assert.doesNotMatch(p.todoList.innerHTML, /Der Status hat sich/);
 });

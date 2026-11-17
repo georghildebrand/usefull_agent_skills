@@ -5,6 +5,9 @@ and writes only after the user says yes.
 """
 
 META_KEYS = {"createdAt"}
+# The five zotero2ai ToDo statuses. A flag with any other value (for example
+# "" from a mark taken back on an older page) is not a target and is skipped.
+STATUSES = {"todo", "in_progress", "blocked", "done", "cancelled"}
 
 
 def plan(flags, notes, current_todos, seen):
@@ -12,11 +15,13 @@ def plan(flags, notes, current_todos, seen):
 
     action is one of transition, changed_in_source, needs_reason, unknown_key.
     `seen` maps ToDo key to the status the page showed when the flag was set.
+    The page stores it in `todostate/seen`; never take it from `todolists/*`,
+    because a refresh rewrites those with the current source status.
     """
     by_key = {t["key"]: t for t in current_todos}
     rows = []
     for key, target in flags.items():
-        if key in META_KEYS or not isinstance(target, str):
+        if key in META_KEYS or not isinstance(target, str) or target not in STATUSES:
             continue
         note = notes.get(key)
         note = note if isinstance(note, str) else ""

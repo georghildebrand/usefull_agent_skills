@@ -25,6 +25,16 @@
   }
   function arr(x) { return Array.isArray(x) ? x : []; }
 
+  // Rows that common.fit_document dropped to keep a document under 256 KiB.
+  function truncatedOf(doc) {
+    var n = doc && typeof doc === 'object' ? Number(doc.truncated) : 0;
+    return n > 0 && isFinite(n) ? Math.floor(n) : 0;
+  }
+  /** Caption suffix for a cut-down tile, '' when nothing was dropped. */
+  function truncatedNote(n) {
+    return n > 0 ? ' · ' + n + ' weitere wegen Größenlimit nicht gezeigt' : '';
+  }
+
   // A list tile id is "list:<skill-id>"; the skill id is one database path segment.
   function listIdOf(tileId) {
     var s = str(tileId);
@@ -35,14 +45,16 @@
 
   /**
    * ToDo rows from all todolists documents.
-   * Returns {total, rows: [{item, listId, project}], syncedAt}. syncedAt is the
+   * Returns {total, rows: [{item, listId, project}], syncedAt, truncated}. syncedAt is the
    * OLDEST syncedAt over the lists, so the tile never looks fresher than it is.
+   * truncated adds up the rows each list dropped for its size limit.
    */
   function filterTodos(lists, flt, now) {
     flt = flt || {};
-    var q = low(flt.q), total = 0, rows = [], synced = '';
+    var q = low(flt.q), total = 0, rows = [], synced = '', cut = 0;
     arr(lists).forEach(function (l) {
       if (!l || typeof l !== 'object') return;
+      cut += truncatedOf(l);
       if (typeof l.syncedAt === 'string' && l.syncedAt && (!synced || l.syncedAt < synced)) synced = l.syncedAt;
       arr(l.items).forEach(function (t) {
         if (!t || typeof t !== 'object') return;
@@ -56,10 +68,10 @@
       });
     });
     rows.sort(function (a, b) { return str(b.item.updatedAt).localeCompare(str(a.item.updatedAt)); });
-    return { total: total, rows: rows, syncedAt: synced };
+    return { total: total, rows: rows, syncedAt: synced, truncated: cut };
   }
 
-  /** Jira rows from jira/open. Returns {total, rows}, newest change first. */
+  /** Jira rows from jira/open. Returns {total, rows, truncated}, newest change first. */
   function filterJira(doc, flt, now) {
     flt = flt || {};
     var all = doc && typeof doc === 'object' ? arr(doc.items) : [];
@@ -74,7 +86,7 @@
       if (q && low(str(t.key) + ' ' + str(t.title)).indexOf(q) < 0) return false;
       return true;
     }).sort(newestFirst('updatedAt'));
-    return { total: all.length, rows: rows };
+    return { total: all.length, rows: rows, truncated: truncatedOf(doc) };
   }
 
   /** Session rows from sessions/list: search by name or folder, then sort. New array. */
@@ -89,7 +101,7 @@
     return out;
   }
 
-  /** Feed rows from feed/items with read marks from feed/read. Returns {total, unread, rows: [{item, read}]}. */
+  /** Feed rows from feed/items with read marks from feed/read. Returns {total, unread, rows: [{item, read}], truncated}. */
   function filterFeed(doc, read, flt) {
     flt = flt || {};
     read = read && typeof read === 'object' ? read : {};
@@ -103,7 +115,7 @@
       return true;
     });
     rows.sort(function (a, b) { return str(b.item.changedAt).localeCompare(str(a.item.changedAt)); });
-    return { total: all.length, unread: unread, rows: rows };
+    return { total: all.length, unread: unread, rows: rows, truncated: truncatedOf(doc) };
   }
 
   /**
@@ -185,6 +197,26 @@
     return items;
   }
 
+  /**
+   * The start layout from the preset's tiles ([{kind, x, y, w, h, id?}], as in
+   * presets/<name>.json). The id is the tile's own id, else its kind, else
+   * kind-2, kind-3 for repeats. A list tile must carry id "list:<skill-id>".
+   * Returns meta/layout items, or null when the tiles are missing or malformed.
+   */
+  function presetLayout(tiles) {
+    if (!Array.isArray(tiles) || !tiles.length) return null;
+    var used = {}, items = [];
+    for (var i = 0; i < tiles.length; i++) {
+      var t = tiles[i];
+      if (!t || typeof t !== 'object') return null;
+      var id = typeof t.id === 'string' && t.id ? t.id : str(t.kind);
+      for (var n = 2; used[id] && !(typeof t.id === 'string' && t.id); n++) id = str(t.kind) + '-' + n;
+      used[id] = 1;
+      items.push({ id: id, kind: t.kind, x: t.x, y: t.y, w: t.w, h: t.h });
+    }
+    return validLayout({ items: items });
+  }
+
   // German page copy for a tile without rows. Keys: none = no database in this
   // view, loading, slow = not reached after 10 s, empty = no data yet, nomatch = filters hide all.
   var NOUN = {
@@ -221,6 +253,9 @@
     listIdOf: listIdOf,
     parseCommand: parseCommand,
     validLayout: validLayout,
+    presetLayout: presetLayout,
+    truncatedOf: truncatedOf,
+    truncatedNote: truncatedNote,
     emptyText: emptyText
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
