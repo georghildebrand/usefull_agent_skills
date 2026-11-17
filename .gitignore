@@ -8,3 +8,6 @@
 # PlantUML / tooling artefacts
 *.cmapx
 plantuml.jar
+
+# Private planning notes for usage-stats: hold real numbers and a personal name.
+usage-stats/docs/
