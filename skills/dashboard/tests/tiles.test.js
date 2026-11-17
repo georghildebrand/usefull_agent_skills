@@ -347,11 +347,15 @@ function runPage(html) {
     load(ws) { this.loads.push(Array.from(ws, (w) => w.id));
       this.engine.nodes = ws.map((w) => ({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h })); },
     on() {}, getColumn() { return 12; }, setStatic() {}, addWidget() {}, removeWidget() {} };
-  const subs = {}, writes = [];
+  const subs = {}, writes = [], exists = {};
+  // update() rejects on a document that does not exist, as the db contract says.
   function ref(p) {
     return { onSnapshot(cb) { subs[p] = cb; },
-      set(d) { writes.push(['set', p, JSON.parse(JSON.stringify(d))]); return Promise.resolve(); },
-      update(d) { writes.push(['update', p, JSON.parse(JSON.stringify(d))]); return Promise.resolve(); },
+      set(d) { writes.push(['set', p, JSON.parse(JSON.stringify(d))]); exists[p] = true; return Promise.resolve(); },
+      update(d) {
+        writes.push(['update', p, JSON.parse(JSON.stringify(d))]);
+        return exists[p] ? Promise.resolve() : Promise.reject(Object.assign(new Error('missing'), { code: 'invalid_argument' }));
+      },
       get() { return new Promise(() => {}); } };
   }
   const db = { doc: ref, collection: ref };
@@ -362,10 +366,11 @@ function runPage(html) {
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'template', 'tiles.js'), 'utf8'), ctx);
   vm.runInContext(inlineScripts(html)[0], ctx);
-  function doc(p, exists, data) { subs[p]({ exists, data: () => data, metadata: { hasPendingWrites: false } }); }
+  function doc(p, ex, data) { exists[p] = ex; subs[p]({ exists: ex, data: () => data, metadata: { hasPendingWrites: false } }); }
   function coll(p, docs) { subs[p]({ docs: docs.map((d) => ({ id: d.id, data: () => d })) }); }
   function change(attrs, value) {
-    const target = { value, matches: (s) => s === '[data-flag]', getAttribute: (a) => attrs[a] };
+    const sel = 'data-note' in attrs ? '[data-note]' : '[data-flag]';
+    const target = { value, matches: (s) => s === sel, getAttribute: (a) => attrs[a] };
     byId.grid.listeners.change.forEach((f) => f({ target }));
   }
   return { grid, writes, doc, coll, change, todoList, byId, flush: () => new Promise((r) => setImmediate(r)) };
@@ -447,4 +452,64 @@ test('page: a mark stores the status seen at mark time, shows a hint after a sou
   assert.deepEqual(p.writes, [['set', 'todostate/flags', {}], ['set', 'todostate/seen', {}], ['set', 'todostate/notes', {}]]);
   assert.ok(!JSON.stringify(p.writes).includes('""'), 'no empty-string mark is written');
   assert.doesNotMatch(p.todoList.innerHTML, /Der Status hat sich/);
+});
+
+test('page: the first note on an empty database creates todostate/notes; later notes update it', async () => {
+  const p = runPage(pageText());
+  await p.flush();
+  p.coll('todolists', [todoList([{ key: 'K1', title: 'x', status: 'todo', updatedAt: iso(Date.now()) }])]);
+  p.doc('todostate/flags', false, {});
+  p.doc('todostate/seen', false, {});
+  p.doc('todostate/notes', false, {});
+  p.change({ 'data-note': 'K1' }, 'Grund');
+  await p.flush();
+  assert.deepEqual(p.writes, [['set', 'todostate/notes', { K1: 'Grund' }]]);
+  assert.doesNotMatch(p.todoList.innerHTML, /Schreibrecht/);
+
+  p.doc('todostate/notes', true, { K1: 'Grund' });
+  p.writes.length = 0;
+  p.change({ 'data-note': 'K2' }, 'noch einer');
+  await p.flush();
+  assert.deepEqual(p.writes, [['update', 'todostate/notes', { K2: 'noch einer' }]]);
+});
+
+test('page: a note before todostate/notes has loaded is not written', async () => {
+  const p = runPage(pageText());
+  await p.flush();
+  p.coll('todolists', [todoList([{ key: 'K1', title: 'x', status: 'todo', updatedAt: iso(Date.now()) }])]);
+  p.change({ 'data-note': 'K1' }, 'Grund');
+  await p.flush();
+  assert.deepEqual(p.writes, []);
+});
+
+test('page: replacing every copy of the placeholders keeps the preset tiles', () => {
+  const html = pageText();
+  assert.equal(html.split('__LAYOUT__').length - 1, 1, '__LAYOUT__ appears only in the layout block');
+  const tiles = [{ kind: 'jira', x: 0, y: 0, w: 6, h: 4 }];
+  const filled = html.split('__LAYOUT__').join(JSON.stringify(tiles))
+    .split('__TITLE__').join('Demo').split('__PRESET__').join('demo');
+  assert.doesNotMatch(filled, /__(LAYOUT|TITLE|PRESET)__/);
+  const p = runPage(filled);
+  assert.deepEqual(p.grid.loads[0], ['jira']);
+});
+
+test('page: a preset grown by presets.add_tile on a repo preset keeps the repo tiles', () => {
+  const { execFileSync } = require('node:child_process');
+  const os = require('node:os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dash-'));
+  try {
+    const priv = path.join(dir, 'p.json');
+    const py = 'import sys; sys.path.insert(0, sys.argv[1]); import presets, json\n' +
+      'presets.add_tile("global", "note", sys.argv[2], repo_dir=sys.argv[3])\n' +
+      'p = presets.load("global", sys.argv[3], sys.argv[2])\n' +
+      'print(json.dumps({"tiles": p["tiles"], "layout": presets.layout_items(p["tiles"])}))';
+    const out = JSON.parse(execFileSync('python3', ['-I', '-c', py, path.join(ROOT, 'scripts'), priv, ROOT], { encoding: 'utf8' }));
+    const ids = ['todos', 'jira', 'sessions', 'status', 'statustable', 'feed', 'note'];
+    const p = runPage(pageText().replace('__LAYOUT__', JSON.stringify(out.tiles)));
+    assert.deepEqual(p.grid.loads[0], ids);
+    assert.deepEqual(T.presetLayout(out.tiles).items, out.layout, 'layout_items in Python matches presetLayout');
+    assert.ok(T.validLayout({ items: out.layout }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -63,6 +63,18 @@ class BuildTodosTest(unittest.TestCase):
         self.assertGreater(out["truncated"], 0)
         self.assertEqual(out["items"][0]["key"], "0")
 
+    def test_main_accepts_wrapped_and_plain_result(self):
+        import tempfile
+        src = load_fixture()
+        with tempfile.TemporaryDirectory() as t:
+            for name, raw in (("wrapped", {"result": json.dumps(src)}), ("plain", src)):
+                inp, out = os.path.join(t, name + ".json"), os.path.join(t, name + "-out.json")
+                with open(inp, "w", encoding="utf-8") as fh:
+                    json.dump(raw, fh)
+                self.assertEqual(build_todos.main(["x", inp, "p", out]), 0)
+                with open(out, encoding="utf-8") as fh:
+                    self.assertEqual(len(json.load(fh)["items"]), 3, name)
+
     def test_envelope_fields(self):
         doc = common.envelope("todos", [], project="p")
         self.assertEqual(doc["v"], 1)

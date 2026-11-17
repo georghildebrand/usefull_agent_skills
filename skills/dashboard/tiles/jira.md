@@ -21,12 +21,14 @@ atlassian-cli --profile <profile> jira api /rest/api/3/search/jql \
 `build_jira.build(issues, my_account_id, base_url, scope)` maps issues to items. It has no command line, so call it from Python:
 
 ```
-python3 -c "import sys,json; sys.path.insert(0,'skills/dashboard/scripts'); import build_jira, common; \
+python3 -I -c "import sys,json; sys.path.insert(0,'<skill dir>/scripts'); import build_jira, common; \
 s=json.load(open('<scratchpad>/jira-search.json')); me=json.load(open('<scratchpad>/myself.json')); \
 common.write_json('<scratchpad>/jira-open.json', build_jira.build(s['issues'], me['accountId'], '<site base url>', '<keys>'))"
 ```
 
-`<site base url>` is the profile's site address. It goes only into the document, never into the repo. Write the output with `ArtifactData` `set` to `jira/open`, with `if_version`.
+`<site base url>` is the profile's site address, for example `https://<site>` (with or
+without a trailing `/`). The builder stores it as `baseUrl` = `<site>/browse/`, and the page
+links a ticket as `baseUrl` + key. `<skill dir>` is explained in SKILL.md. The address goes only into the document, never into the repo. Write the output with `ArtifactData` `set` to `jira/open`, with `if_version`.
 
 ## Left out
 

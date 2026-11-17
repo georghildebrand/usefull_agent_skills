@@ -70,9 +70,42 @@ class PresetTests(unittest.TestCase):
             path = os.path.join(t, "p.json")
             shutil_copy(PRIVATE, path)
             p = presets.add_tile("work", "feed", path)
-            self.assertEqual(p["tiles"][-1], {"kind": "feed", "x": 0, "y": 4, "w": 6, "h": 4})
-            q = presets.add_tile("fresh", "note", path, w=3, h=2)
-            self.assertEqual(q["tiles"], [{"kind": "note", "x": 0, "y": 0, "w": 3, "h": 2}])
+            self.assertEqual(p["tiles"][-1], {"kind": "feed", "id": "feed", "x": 0, "y": 4, "w": 6, "h": 4})
+            q = presets.add_tile("fresh", "note", path, w=3, h=2, repo_dir=t)
+            self.assertEqual(q["tiles"], [{"kind": "note", "id": "note", "x": 0, "y": 0, "w": 3, "h": 2}])
+            q = presets.add_tile("fresh", "note", path, w=3, h=2, repo_dir=t)
+            self.assertEqual(q["tiles"][-1]["id"], "note-2", "a repeated kind gets the id the page gives it")
+
+    def test_add_tile_on_repo_preset_keeps_repo_tiles(self):
+        with tempfile.TemporaryDirectory() as t:
+            path = os.path.join(t, "p.json")
+            before = presets.load("global", ROOT, path)["tiles"]
+            self.assertEqual(len(before), 6)
+            presets.add_tile("global", "list", path, skill_id="demo", repo_dir=ROOT)
+            after = presets.load("global", ROOT, path)["tiles"]
+            self.assertEqual(len(after), 7)
+            self.assertEqual(after[:6], before)
+            self.assertEqual(after[6], {"kind": "list", "id": "list:demo", "x": 0, "y": 16, "w": 6, "h": 4})
+            presets.add_tile("global", "note", path, repo_dir=ROOT)
+            self.assertEqual(len(presets.load("global", ROOT, path)["tiles"]), 8)
+
+    def test_layout_items_and_append(self):
+        with tempfile.TemporaryDirectory() as t:
+            path = os.path.join(t, "p.json")
+            tiles = presets.load("global", ROOT, path)["tiles"]
+            items = presets.layout_items(tiles + [{"kind": "list", "x": 0, "y": 0, "w": 6, "h": 4}])
+            self.assertEqual([i["id"] for i in items],
+                             ["todos", "jira", "sessions", "status", "statustable", "feed"],
+                             "a list tile without id is left out, as on the page")
+            self.assertEqual(items[0], {"id": "todos", "kind": "todos", "x": 0, "y": 0, "w": 6, "h": 4})
+            out = presets.append_to_layout(items, {"kind": "jira", "id": "jira", "w": 6, "h": 4})
+            self.assertEqual(out[-1], {"id": "jira-2", "kind": "jira", "x": 0, "y": 16, "w": 6, "h": 4})
+            self.assertEqual(len(items), 6, "the input is not changed")
+            self.assertEqual(presets.append_to_layout(None, {"kind": "note", "id": "note", "w": 3, "h": 2}),
+                             [{"id": "note", "kind": "note", "x": 0, "y": 0, "w": 3, "h": 2}])
+            with self.assertRaises(ValueError):
+                presets.append_to_layout(out + [{"id": "list:a", "kind": "list", "x": 0, "y": 0, "w": 1, "h": 1}],
+                                         {"kind": "list", "id": "list:a", "w": 6, "h": 4})
 
     def test_add_tile_unknown_kind_raises(self):
         with tempfile.TemporaryDirectory() as t:
@@ -140,9 +173,10 @@ class PresetTests(unittest.TestCase):
     def test_tile_kinds_are_not_secrets(self):
         with tempfile.TemporaryDirectory() as t:
             priv = os.path.join(t, "p.json")
-            presets.add_tile("work", "todos", priv)
-            presets.add_tile("work", "note", priv)
-            presets.set_url("work", "https://example.invalid/secretsite", priv)
+            presets.add_tile("global", "todos", priv, repo_dir=ROOT)
+            presets.add_tile("global", "note", priv, repo_dir=ROOT)
+            presets.set_url("global", "https://example.invalid/secretsite", priv)
+            # "global" is a repo preset name, the kinds and kind ids (todos-2) are not secret.
             self.assertEqual(presets.secret_values(priv), ["https://example.invalid/secretsite"])
             os.makedirs(os.path.join(t, "skills", "dashboard"))
             with open(os.path.join(t, "skills", "dashboard", "x.md"), "w") as f:
@@ -163,6 +197,48 @@ class PresetTests(unittest.TestCase):
             r = self._run_check(priv, t)
             self.assertEqual(r.returncode, 1)
             self.assertIn("x.md:2", r.stdout)
+
+    def _write_repo_file(self, t, text):
+        os.makedirs(os.path.join(t, "skills", "dashboard"), exist_ok=True)
+        with open(os.path.join(t, "skills", "dashboard", "x.md"), "w") as f:
+            f.write(text)
+
+    def test_source_list_in_one_string_is_checked_per_key(self):
+        with tempfile.TemporaryDirectory() as t:
+            priv = os.path.join(t, "p.json")
+            with open(priv, "w") as f:
+                json.dump({"presets": {"global": {"sources": {"jira": "QQX, ZZW;YYV  WWU"}}}}, f)
+            vals = presets.secret_values(priv)
+            for key in ("QQX, ZZW;YYV  WWU", "QQX", "ZZW", "YYV", "WWU"):
+                self.assertIn(key, vals)
+            self._write_repo_file(t, "a\nonly ZZW here\n")
+            r = self._run_check(priv, t)
+            self.assertEqual(r.returncode, 1, r.stdout)
+            self.assertIn("x.md:2", r.stdout)
+
+    def test_filters_split_at_commas_not_spaces(self):
+        with tempfile.TemporaryDirectory() as t:
+            priv = os.path.join(t, "p.json")
+            with open(priv, "w") as f:
+                json.dump({"presets": {"global": {"filters": {"team": "red team, blue team"}}}}, f)
+            self.assertEqual(presets.secret_values(priv), ["red team, blue team", "red team", "blue team"])
+
+    def test_preset_name_and_tile_id_are_checked(self):
+        with tempfile.TemporaryDirectory() as t:
+            priv = os.path.join(t, "p.json")
+            with open(priv, "w") as f:
+                json.dump({"presets": {"Quokkaproj": {"tiles": [
+                    {"kind": "list", "id": "list:Wombatlist", "x": 0, "y": 0, "w": 6, "h": 4},
+                    {"kind": "note", "id": "note-2", "x": 0, "y": 4, "w": 3, "h": 2}]}}}, f)
+            self.assertEqual(presets.secret_values(priv), ["Quokkaproj", "Wombatlist"])
+            self._write_repo_file(t, "the quokkaproj runbook\n")
+            r = self._run_check(priv, t)
+            self.assertEqual(r.returncode, 1, r.stdout)
+            self.assertNotIn("quokkaproj", r.stdout.lower())
+            self._write_repo_file(t, "see Wombatlist\n")
+            self.assertEqual(self._run_check(priv, t).returncode, 1)
+            self._write_repo_file(t, "list note note-2\n")
+            self.assertEqual(self._run_check(priv, t).returncode, 0)
 
     def test_check_clean_no_private_file(self):
         r = subprocess.run(["bash", CHECK, "/nonexistent/p.json"], capture_output=True, text=True)

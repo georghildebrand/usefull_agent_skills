@@ -66,8 +66,9 @@ turns that prototype into a reusable template.
   `comments.sendToClaude({anchor, text})` (editors only). The platform notifies the
   sessions that watch the artifact. `comments.canSendToClaude()` returns
   `"no_session"` when nobody listens. Then the page shows the command to type instead.
-- **Watching is per session.** A session watches an artifact after it publishes or
-  reads it, or after `ArtifactComments` `watch`. Watches end with the session.
+- **Watching is per session.** A session watches an artifact after it publishes it,
+  or after `ArtifactComments` `watch`. A read alone does not start a watch. Watches
+  end with the session.
 - **Shared repo.** The skill lives in `usefull_agent_skills`, which is shared. Rules
   from the `skill-confidentiality-boundary` skill apply: no customer names, no
   internal Jira project keys or Confluence space keys, no artifact URLs, no people's
@@ -203,8 +204,8 @@ user. The user can overrule them.
    `todostate/notes`, `sessions/list`, `status/<id>` and `jira/open` in the shapes
    listed above. The template starts from this file. It is not a rewrite.
 2. **Who answers a refresh comment.** *(call)* The normal case is the session in
-   which the user runs `/dashboard`: publishing or reading the page makes that
-   session watch it. The fallback is the typed command. No long-running dashboard
+   which the user runs `/dashboard`: publishing the page, or `ArtifactComments`
+   `watch` when there is no republish, makes that session watch it. The fallback is the typed command. No long-running dashboard
    session in v1 (that is approach B). The handler accepts only the exact text
    `dashboard refresh <preset> <tile|all>` and `dashboard sync <preset>`. Sync from a
    comment only lists the planned changes in the reply; it writes only after a yes

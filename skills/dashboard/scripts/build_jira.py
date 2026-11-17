@@ -42,7 +42,22 @@ def _role(fields, my_id):
     return "other"
 
 
+def browse_url(site):
+    """Ticket link base "<site>/browse/". The page appends the key to it.
+
+    site is the Jira site address ("https://site.example.net" or with a trailing
+    "/"). A value that already ends with "/browse" or "/browse/" is kept.
+    """
+    if not isinstance(site, str) or not site:
+        return ""
+    site = site.rstrip("/")
+    if site.endswith("/browse"):
+        return site + "/"
+    return site + "/browse/"
+
+
 def build(issues, my_account_id, base_url, scope=""):
+    """Map issues to the jira/open document. base_url is the site address."""
     items = []
     for order, issue in enumerate(issues):
         if not isinstance(issue, dict):
@@ -62,4 +77,4 @@ def build(issues, my_account_id, base_url, scope=""):
             "parent": _get(f, "parent", "key"),
             "order": order,
         })
-    return common.fit_document(common.envelope("jira", items, baseUrl=base_url, scope=scope))
+    return common.fit_document(common.envelope("jira", items, baseUrl=browse_url(base_url), scope=scope))

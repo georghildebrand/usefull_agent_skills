@@ -10,8 +10,10 @@ and it can change. The builder skips fields it does not find.
 
 ## Build
 
+`<skill dir>` is explained in SKILL.md.
+
 ```
-python3 skills/dashboard/scripts/build_sessions.py <scratchpad>/sessions.json
+python3 <skill dir>/scripts/build_sessions.py <scratchpad>/sessions.json
 ```
 
 Write the file with `ArtifactData` `set` to `sessions/list`, with `if_version`.

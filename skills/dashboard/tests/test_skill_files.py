@@ -39,8 +39,23 @@ class SkillFiles(unittest.TestCase):
 
     def test_feed_queries(self):
         text = read("tiles", "feed.md")
-        for s in ["lastmodified >=", "mention = currentUser()", "updated >=", "watcher = currentUser()"]:
+        for s in ["lastmodified >=", "mention = currentUser()", "updated >=", "watcher = currentUser()",
+                  "build_feed.query_time(", "build_feed.item_id(", "timeZone"]:
             self.assertIn(s, text)
+        self.assertNotIn('"jira:<key>"', text, "feed ids carry the change time")
+
+    def test_add_and_watch_steps(self):
+        text = read("SKILL.md")
+        for s in ["presets.layout_items(", "presets.append_to_layout(", "repo_dir='<skill dir>'",
+                  "`ArtifactComments` `action: watch`", "every occurrence"]:
+            self.assertIn(s, text)
+        self.assertNotIn("This makes the session watch it", text)
+
+    def test_paths_use_skill_dir(self):
+        for name in ["SKILL.md"] + ["tiles/%s.md" % k for k in KINDS]:
+            text = read(*name.split("/"))
+            self.assertNotIn("skills/dashboard/", text, name)
+            self.assertNotIn("'skills/dashboard'", text, name)
 
 
 if __name__ == "__main__":

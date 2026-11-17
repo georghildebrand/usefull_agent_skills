@@ -28,7 +28,7 @@ def load(name):
 
 def cql_items():
     return [
-        {"id": "confluence:%s:%s" % (r["id"], r["lastModified"]), "kind": "page",
+        {"id": build_feed.item_id("confluence", r["id"], r["lastModified"]), "kind": "page",
          "title": r["title"], "link": r["url"], "source": "confluence",
          "changedAt": r["lastModified"], "why": r["why"]}
         for r in load("confluence_cql.json")["results"]
@@ -76,6 +76,30 @@ class FeedTests(unittest.TestCase):
         marks = build_feed.markers(None, "confluence", NOW)
         self.assertEqual(build_feed.since(marks, "confluence", "2026-11-20T00:00:00Z"), NOW)
         self.assertEqual(build_feed.since(marks, "jira", NOW), "2026-11-10T10:00:00Z")
+
+
+    def test_item_id_carries_change_time(self):
+        self.assertEqual(build_feed.item_id("jira", "ACME-1", "2026-11-16T09:00:00Z"),
+                         "jira:ACME-1:2026-11-16T09:00:00Z")
+        # A ticket the user read changes again: the new change gets a new id and stays unread.
+        read = {build_feed.item_id("jira", "ACME-1", "2026-11-16T09:00:00Z"): True}
+        doc = build_feed.merge(
+            {"items": [{"id": "jira:ACME-1:2026-11-16T09:00:00Z", "changedAt": "2026-11-16T09:00:00Z"}]},
+            [{"id": build_feed.item_id("jira", "ACME-1", "2026-11-17T08:00:00Z"),
+              "changedAt": "2026-11-17T08:00:00Z"}], NOW)
+        self.assertEqual(len(doc["items"]), 2)
+        self.assertNotIn(doc["items"][0]["id"], read)
+
+    def test_query_time_is_jql_and_cql_form(self):
+        marker = build_feed.since(None, "jira", NOW)
+        self.assertEqual(build_feed.query_time(marker, "UTC"), "2026-11-10 09:55")
+        self.assertEqual(build_feed.query_time(marker, "Europe/Berlin"), "2026-11-10 10:55")
+        self.assertEqual(build_feed.query_time(marker, "America/New_York"), "2026-11-10 04:55")
+        self.assertEqual(build_feed.query_time(marker, "UTC", margin_minutes=0), "2026-11-10 10:00")
+
+    def test_query_time_without_zone_goes_back_14_hours(self):
+        for tz in (None, "", "No/Such_Zone"):
+            self.assertEqual(build_feed.query_time("2026-11-10T10:00:00Z", tz), "2026-11-09 19:55", tz)
 
 
 class PlanTests(unittest.TestCase):

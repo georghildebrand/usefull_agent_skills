@@ -6,13 +6,17 @@ The page also writes `todostate/flags`, `todostate/seen` and `todostate/notes`. 
 ## Source
 
 Per project in `sources.todos`, call the zotero2ai tool
-`todo_list(project=<project>)`. The harness saves the result to a file.
-Use that file path as `<tool-result-file>`.
+`todo_list(project=<project>)`. The harness saves a large result to a file. Use that
+file path as `<tool-result-file>`. A small result comes back inline: then save it as JSON
+to `<scratchpad>/todo_list-<project>.json` and use that path. The builder accepts both the
+saved MCP output `{"result": "<json string>"}` and the plain result `{"todos": [...]}`.
 
 ## Build
 
+`<skill dir>` is explained in SKILL.md.
+
 ```
-python3 skills/dashboard/scripts/build_todos.py <tool-result-file> <project> <scratchpad>/todos-<project>.json
+python3 <skill dir>/scripts/build_todos.py <tool-result-file> <project> <scratchpad>/todos-<project>.json
 ```
 
 Write the output file with `ArtifactData` `set` to `todolists/<project>`, with `if_version` from the last read.

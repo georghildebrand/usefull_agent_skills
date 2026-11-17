@@ -3,7 +3,8 @@
 
 Usage: build_todos.py <tool-result-file> <project> <out.json>
 
-The tool-result file is the saved MCP output {"result": "<json string>"}.
+The tool-result file is the saved MCP output {"result": "<json string>"}, or
+the todo_list result itself ({"todos": [...]}) saved as JSON.
 """
 import json
 import os
@@ -44,7 +45,7 @@ def main(argv):
         return 2
     with open(argv[1], encoding="utf-8") as fh:
         raw = json.load(fh)
-    inner = raw["result"]
+    inner = raw.get("result", raw) if isinstance(raw, dict) else raw
     data = json.loads(inner) if isinstance(inner, str) else inner
     common.write_json(argv[3], build(data, argv[2]))
     return 0

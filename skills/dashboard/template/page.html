@@ -194,7 +194,7 @@ body {
   var TEMPLATE = metaContent('dashboard-template');
 
   // Fallback start layout (same tiles as presets/global.json). Used only when the
-  // skill did not replace __LAYOUT__ with the preset's tiles, or they are malformed.
+  // skill did not fill the dashboard-layout block with the preset's tiles, or they are malformed.
   var DEFAULTS = [
     { id: 'todos', kind: 'todos', x: 0, y: 0, w: 6, h: 4 },
     { id: 'jira', kind: 'jira', x: 6, y: 0, w: 6, h: 4 },
@@ -211,7 +211,8 @@ body {
   var START = (function () {
     var el = document.getElementById('dashboard-layout');
     var text = el ? el.textContent.trim() : '';
-    if (!el || text === '__LAYOUT__') return DEFAULTS;  // template not filled in by the skill
+    // The placeholder is built from two parts: the skill replaces every copy of it in this file.
+    if (!el || text === '__LAY' + 'OUT__') return DEFAULTS;  // template not filled in by the skill
     var r;
     try { r = T.presetLayout(JSON.parse(text)); } catch (e) { r = { items: null, skipped: 0 }; }
     if (!r.items) {
@@ -420,18 +421,24 @@ body {
     });
   }
   // A note travels with the status mark; Claude reads it at the next sync.
+  // writeKey creates todostate/notes with set() when it does not exist yet: nothing else creates it.
   function setNote(key, value) {
     if (!dbRef || !key) return;
+    if (!markDocs.notes.loaded) {
+      flagMsg = 'Die Kommentare sind noch nicht geladen. Versuche es gleich noch einmal.';
+      renderTodos();
+      return;
+    }
     value = String(value || '').trim().slice(0, 500);
     if ((notes[key] || '') === value) return;
-    var before = notes[key];
-    notes[key] = value; flagMsg = '';
-    var patch = {}; patch[key] = value;
-    writeChain = writeChain.then(function () { return dbRef.doc('todostate/notes').update(patch); }).then(function () {
+    var before = notes;
+    notes = Object.assign({}, notes); notes[key] = value; flagMsg = '';
+    var nn = notes;
+    writeChain = writeChain.then(function () { return writeKey('notes', nn, key, value); }).then(function () {
       flagMsg = 'Kommentar gespeichert.'; renderTodos();
       setTimeout(function () { if (flagMsg === 'Kommentar gespeichert.') { flagMsg = ''; renderTodos(); } }, 2500);
     }, function () {
-      notes[key] = before;
+      notes = before;
       flagMsg = 'Der Kommentar wurde nicht gespeichert. In dieser Ansicht fehlt das Schreibrecht.';
       renderTodos();
     });

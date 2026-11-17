@@ -79,8 +79,16 @@ class JiraTests(unittest.TestCase):
         self.assertEqual(it["priority"], "")
         self.assertEqual(it["parent"], "")
         self.assertEqual(it["updatedAt"], "2026-11-16T10:00:00Z")
-        self.assertEqual(self.doc["baseUrl"], "https://example.invalid")
+        self.assertEqual(self.doc["baseUrl"], "https://example.invalid/browse/")
         self.assertEqual(self.doc["scope"], "demo")
+
+    def test_jira_base_url_ends_with_browse(self):
+        # The page builds a link as baseUrl + key, so baseUrl must end with "/browse/".
+        for site in ("https://example.invalid", "https://example.invalid/",
+                     "https://example.invalid/browse", "https://example.invalid/browse/"):
+            doc = build_jira.build(self.issues, "me-123", site)
+            self.assertEqual(doc["baseUrl"], "https://example.invalid/browse/", site)
+        self.assertEqual(build_jira.build([], "me-123", "")["baseUrl"], "")
 
     def test_jira_role(self):
         roles = {i["key"]: i["role"] for i in self.doc["items"]}
