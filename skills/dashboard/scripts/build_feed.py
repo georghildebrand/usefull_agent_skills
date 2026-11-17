@@ -30,7 +30,7 @@ def merge(existing, new_items, now, keep_days=30):
         items.append(item)
     doc = common.envelope("feed", items)
     doc["syncedAt"] = now
-    return doc
+    return common.fit_document(doc)
 
 
 def markers(existing_markers, source, now):

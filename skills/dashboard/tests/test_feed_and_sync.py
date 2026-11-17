@@ -15,6 +15,7 @@ FIX = os.path.join(HERE, "fixtures")
 
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "scripts"))
 import build_feed  # noqa: E402
+import common  # noqa: E402
 import plan_sync  # noqa: E402
 
 NOW = "2026-11-17T10:00:00Z"
@@ -53,6 +54,22 @@ class FeedTests(unittest.TestCase):
                          [i["id"] for i in doc["items"]])
         doc = build_feed.merge(None, [], NOW)
         self.assertEqual(doc["items"], [])
+
+    def test_feed_fits_size_limit_and_keeps_newest(self):
+        items = [
+            {"id": "x:%03d" % n, "kind": "page", "title": "t" * 1000,
+             "link": "https://example.invalid/%d" % n, "source": "confluence",
+             "changedAt": "2026-11-16T%02d:%02d:00Z" % (23 - n // 60, 59 - n % 60),
+             "why": "w"}
+            for n in range(400)
+        ]
+        doc = build_feed.merge(None, items, NOW)
+        self.assertLess(len(json.dumps(doc, ensure_ascii=False).encode("utf-8")),
+                        common.LIMIT)
+        self.assertGreater(doc["truncated"], 0)
+        self.assertEqual(doc["items"][0]["id"], "x:000")
+        self.assertEqual([i["id"] for i in doc["items"]],
+                         ["x:%03d" % n for n in range(len(doc["items"]))])
 
     def test_since_defaults_to_7_days(self):
         self.assertEqual(build_feed.since(None, "confluence", NOW), "2026-11-10T10:00:00Z")
