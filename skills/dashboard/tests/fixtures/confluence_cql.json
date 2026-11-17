@@ -1,0 +1,5 @@
+{"results": [
+ {"id": "1001", "title": "Release checklist", "url": "https://wiki.example.test/pages/1001", "lastModified": "2026-11-16T09:00:00Z", "why": "changed"},
+ {"id": "1002", "title": "Runbook update", "url": "https://wiki.example.test/pages/1002", "lastModified": "2026-11-15T12:30:00Z", "why": "mention"},
+ {"id": "1003", "title": "Design notes", "url": "https://wiki.example.test/pages/1003", "lastModified": "2026-11-14T08:15:00Z", "why": "watching"}
+]}

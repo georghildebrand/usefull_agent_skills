@@ -1,0 +1,5 @@
+[
+ {"key": "TODO-1", "title": "Write release notes", "status": "in_progress", "priority": "high", "version": 3},
+ {"key": "TODO-2", "title": "Fix flaky test", "status": "todo", "priority": "medium", "version": 1},
+ {"key": "TODO-3", "title": "Update runbook", "status": "in_progress", "priority": "low", "version": 2}
+]

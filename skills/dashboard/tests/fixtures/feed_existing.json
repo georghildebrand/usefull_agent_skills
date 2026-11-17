@@ -1,0 +1,4 @@
+{"v": 1, "syncedAt": "2026-11-16T10:00:00Z", "source": "feed", "items": [
+ {"id": "confluence:1002:2026-11-15T12:30:00Z", "kind": "page", "title": "Runbook update", "link": "https://wiki.example.test/pages/1002", "source": "confluence", "changedAt": "2026-11-15T12:30:00Z", "why": "mention"},
+ {"id": "confluence:0900:2026-09-01T08:00:00Z", "kind": "page", "title": "Old page", "link": "https://wiki.example.test/pages/0900", "source": "confluence", "changedAt": "2026-09-01T08:00:00Z", "why": "watching"}
+]}
