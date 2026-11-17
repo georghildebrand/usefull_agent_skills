@@ -276,20 +276,25 @@ test('page: the inline script parses and uses the agreed documents and texts', (
 
 test('presetLayout: preset tiles become meta/layout items; repeats get numbered ids', () => {
   const global = JSON.parse(fs.readFileSync(path.join(ROOT, 'presets', 'global.json'), 'utf8'));
-  const items = T.presetLayout(global.tiles);
-  assert.deepEqual(items.map((i) => i.id), ['todos', 'jira', 'sessions', 'status', 'statustable', 'feed']);
-  assert.deepEqual(items[0], { id: 'todos', kind: 'todos', x: 0, y: 0, w: 6, h: 4 });
+  const r = T.presetLayout(global.tiles);
+  assert.equal(r.skipped, 0);
+  assert.deepEqual(r.items.map((i) => i.id), ['todos', 'jira', 'sessions', 'status', 'statustable', 'feed']);
+  assert.deepEqual(r.items[0], { id: 'todos', kind: 'todos', x: 0, y: 0, w: 6, h: 4 });
   const two = T.presetLayout([{ kind: 'note', x: 0, y: 0, w: 3, h: 2 }, { kind: 'note', x: 3, y: 0, w: 3, h: 2 },
     { kind: 'list', id: 'list:demo', x: 0, y: 2, w: 6, h: 4 }]);
-  assert.deepEqual(two.map((i) => i.id), ['note', 'note-2', 'list:demo']);
+  assert.deepEqual(two.items.map((i) => i.id), ['note', 'note-2', 'list:demo']);
 });
 
-test('presetLayout: missing or malformed tiles give null', () => {
-  assert.equal(T.presetLayout(undefined), null);
-  assert.equal(T.presetLayout([]), null);
-  assert.equal(T.presetLayout([{ kind: 'list', x: 0, y: 0, w: 6, h: 4 }]), null, 'list tile needs list:<skill-id>');
-  assert.equal(T.presetLayout([{ kind: 'spark', x: 0, y: 0, w: 6, h: 4 }]), null);
-  assert.equal(T.presetLayout([{ kind: 'jira', x: 0, y: 0, w: 6 }]), null);
+test('presetLayout: missing tiles give no items; a malformed tile is left out, the others stay', () => {
+  assert.deepEqual(T.presetLayout(undefined), { items: null, skipped: 0 });
+  assert.deepEqual(T.presetLayout([]), { items: null, skipped: 0 });
+  const bad = [{ kind: 'list', x: 0, y: 0, w: 6, h: 4 }, { kind: 'spark', x: 0, y: 0, w: 6, h: 4 },
+    { kind: 'jira', x: 0, y: 0, w: 6 }, null, { kind: 'list', id: 'list:..', x: 0, y: 0, w: 6, h: 4 }];
+  assert.deepEqual(T.presetLayout(bad), { items: null, skipped: 5 });
+  const mixed = T.presetLayout([{ kind: 'todos', x: 0, y: 0, w: 6, h: 4 }, { kind: 'list', x: 0, y: 4, w: 6, h: 4 },
+    { kind: 'list', id: 'list:a', x: 6, y: 0, w: 6, h: 4 }, { kind: 'list', id: 'list:a', x: 6, y: 4, w: 6, h: 4 }]);
+  assert.deepEqual(mixed.items.map((i) => i.id), ['todos', 'list:a'], 'list tile without id and repeated id left out');
+  assert.equal(mixed.skipped, 2);
 });
 
 // ---- rows dropped for the size limit ----
@@ -376,6 +381,42 @@ test('page: start layout comes from the preset block; reset returns to it', () =
   assert.deepEqual(p.grid.loads[p.grid.loads.length - 1], ['jira', 'list:demo']);
   const plain = runPage(html);
   assert.deepEqual(plain.grid.loads[0], ['todos', 'jira', 'sessions', 'status', 'statustable', 'feed'], 'unreplaced template falls back to the global tiles');
+  assert.doesNotMatch(plain.byId.status.textContent, /ausgelassen|unbekanntes Format/);
+});
+
+test('page: a preset built with presets.add_tile(..., "list", skill_id=...) keeps its own tiles', () => {
+  const { execFileSync } = require('node:child_process');
+  const os = require('node:os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dash-'));
+  try {
+    const priv = path.join(dir, 'p.json');
+    const py = 'import sys; sys.path.insert(0, sys.argv[1]); import presets, json\n' +
+      'presets.add_tile("work", "todos", sys.argv[2])\n' +
+      'p = presets.add_tile("work", "list", sys.argv[2], skill_id="demo-skill")\n' +
+      'print(json.dumps(p["tiles"]))';
+    const tiles = JSON.parse(execFileSync('python3', ['-I', '-c', py, path.join(ROOT, 'scripts'), priv], { encoding: 'utf8' }));
+    assert.equal(tiles[1].id, 'list:demo-skill');
+    const html = pageText();
+    const p = runPage(html.replace('__LAYOUT__', JSON.stringify(tiles)));
+    assert.deepEqual(p.grid.loads[0], ['todos', 'list:demo-skill']);
+    assert.doesNotMatch(p.byId.status.textContent, /ausgelassen/);
+
+    // An old preset entry with a list tile but no id: the tile is left out, the others stay, the page says so.
+    const old = tiles.concat([{ kind: 'list', x: 0, y: 8, w: 6, h: 4 }]);
+    const q = runPage(html.replace('__LAYOUT__', JSON.stringify(old)));
+    assert.deepEqual(q.grid.loads[0], ['todos', 'list:demo-skill']);
+    assert.match(q.byId.status.textContent, /1 Widget aus dem Preset ausgelassen/);
+    q.byId['btn-reset'].listeners.click[0]();
+    assert.deepEqual(q.grid.loads[q.grid.loads.length - 1], ['todos', 'list:demo-skill']);
+    assert.match(q.byId.status.textContent, /Startanordnung wiederhergestellt · 1 Widget aus dem Preset ausgelassen/);
+
+    // No usable tile at all: global tiles, with a notice.
+    const none = runPage(html.replace('__LAYOUT__', JSON.stringify([{ kind: 'list', x: 0, y: 0, w: 6, h: 4 }])));
+    assert.deepEqual(none.grid.loads[0], ['todos', 'jira', 'sessions', 'status', 'statustable', 'feed']);
+    assert.match(none.byId.status.textContent, /Die Widgets des Presets haben ein unbekanntes Format/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('page: a mark stores the status seen at mark time, shows a hint after a source change, and taking it back removes it', async () => {

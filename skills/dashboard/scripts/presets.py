@@ -5,8 +5,11 @@ Repo presets live in <repo_dir>/presets/<name>.json.
 """
 import json
 import os
+import re
 
 TILE_KINDS = ["todos", "jira", "sessions", "status", "statustable", "feed", "list", "note"]
+# Same rule as SEGMENT in template/tiles.js: one database path segment.
+SKILL_ID = re.compile(r"^[A-Za-z0-9_\-.~:@+]{1,200}\Z")
 DEFAULT_PRIVATE = os.path.expanduser("~/.config/claude-dashboard/presets.json")
 
 
@@ -49,14 +52,31 @@ def set_url(name, url, private_path=DEFAULT_PRIVATE):
     _write(private_path, data)
 
 
-def add_tile(name, kind, private_path=DEFAULT_PRIVATE, w=6, h=4):
+def add_tile(name, kind, private_path=DEFAULT_PRIVATE, w=6, h=4, skill_id=None):
+    """Append a tile below the lowest tile of the private preset.
+
+    A list tile needs skill_id: it is written as id "list:<skill_id>", the id the
+    page needs to find the document lists/<skill_id>. Raises ValueError for an
+    unknown kind, a list tile without a valid skill_id, a list that is already in
+    the preset, or a skill_id given for another kind.
+    """
     if kind not in TILE_KINDS:
         raise ValueError("unknown tile kind: %s" % kind)
+    tile = {"kind": kind}
+    if kind == "list":
+        if not skill_id or not SKILL_ID.match(skill_id) or skill_id in (".", ".."):
+            raise ValueError("a list tile needs a skill id (one database path segment)")
+        tile["id"] = "list:" + skill_id
+    elif skill_id is not None:
+        raise ValueError("skill_id is only for kind 'list'")
     data = _read(private_path)
     preset = data.setdefault("presets", {}).setdefault(name, {})
     tiles = preset.setdefault("tiles", [])
+    if "id" in tile and any(t.get("id") == tile["id"] for t in tiles):
+        raise ValueError("this list is already in the preset")
     y = max([t["y"] + t["h"] for t in tiles], default=0)
-    tiles.append({"kind": kind, "x": 0, "y": y, "w": w, "h": h})
+    tile.update({"x": 0, "y": y, "w": w, "h": h})
+    tiles.append(tile)
     _write(private_path, data)
     return preset
 

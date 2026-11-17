@@ -175,7 +175,7 @@ wants a tile only needs to write that document; the skill's own SKILL.md says ho
   changes, write after the user says yes, clear the marks that were written, refresh
   the tile.
 - `/dashboard add <preset> <tile>`: add a tile to the preset in the private file and
-  to the page.
+  to the page. A list tile is named `list:<skill-id>`; the preset stores it with that id.
 
 ### The existing prototype
 

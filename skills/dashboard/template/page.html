@@ -205,9 +205,21 @@ body {
   ];
   // Start layout: the preset's tiles from the dashboard-layout block. It is shown
   // when meta/layout does not exist yet and after "Anordnung zurücksetzen".
+  // START_NOTE is added to the status line whenever the start layout is shown and
+  // the preset had a tile the page could not use.
+  var START_NOTE = '';
   var START = (function () {
     var el = document.getElementById('dashboard-layout');
-    try { return (el && T.presetLayout(JSON.parse(el.textContent))) || DEFAULTS; } catch (e) { return DEFAULTS; }
+    var text = el ? el.textContent.trim() : '';
+    if (!el || text === '__LAYOUT__') return DEFAULTS;  // template not filled in by the skill
+    var r;
+    try { r = T.presetLayout(JSON.parse(text)); } catch (e) { r = { items: null, skipped: 0 }; }
+    if (!r.items) {
+      START_NOTE = ' · Die Widgets des Presets haben ein unbekanntes Format. Die Seite zeigt die globalen Widgets.';
+      return DEFAULTS;
+    }
+    if (r.skipped) START_NOTE = ' · ' + (r.skipped === 1 ? '1 Widget' : r.skipped + ' Widgets') + ' aus dem Preset ausgelassen: unbekanntes Format';
+    return r.items;
   })();
 
   var TITLES = { todos: 'Aufgaben (zotero2ai)', jira: 'Jira-Tickets', sessions: 'Sitzungen', status: 'Status zum Anhören', statustable: 'Statustabelle', feed: 'Neuigkeiten', list: 'Liste', note: 'Notiz' };
@@ -800,7 +812,7 @@ body {
     if (!items) {
       if (first) {
         layoutSaved = s.exists ? '' : JSON.stringify(currentLayout());
-        statusEl.textContent = s.exists ? 'Die gespeicherte Anordnung hat ein unbekanntes Format. Die Seite zeigt die Startanordnung.' : 'Startanordnung · 12 Spalten, Zellenhöhe 84 px';
+        statusEl.textContent = (s.exists ? 'Die gespeicherte Anordnung hat ein unbekanntes Format. Die Seite zeigt die Startanordnung.' : 'Startanordnung · 12 Spalten, Zellenhöhe 84 px') + START_NOTE;
       }
       return;
     }
@@ -888,7 +900,7 @@ body {
   show(START);
   layoutSaved = JSON.stringify(currentLayout());
   renderAddMenu();
-  statusEl.textContent = 'Lade Anordnung … · Preset ' + PRESET + ' · Vorlage ' + TEMPLATE;
+  statusEl.textContent = 'Lade Anordnung … · Preset ' + PRESET + ' · Vorlage ' + TEMPLATE + START_NOTE;
 
   initCapabilities();
 
@@ -1011,7 +1023,7 @@ body {
 
   document.getElementById('btn-reset').addEventListener('click', function () {
     show(START);
-    statusEl.textContent = 'Startanordnung wiederhergestellt';
+    statusEl.textContent = 'Startanordnung wiederhergestellt' + START_NOTE;
     layoutChanged();
   });
 })();

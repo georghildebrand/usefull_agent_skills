@@ -79,6 +79,28 @@ class PresetTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 presets.add_tile("work", "bogus", os.path.join(t, "p.json"))
 
+    def test_add_tile_list_writes_list_id(self):
+        with tempfile.TemporaryDirectory() as t:
+            path = os.path.join(t, "p.json")
+            p = presets.add_tile("work", "list", path, skill_id="demo-skill")
+            self.assertEqual(p["tiles"], [{"kind": "list", "id": "list:demo-skill",
+                                           "x": 0, "y": 0, "w": 6, "h": 4}])
+            self.assertEqual(presets.load("work", t, path)["tiles"][0]["id"], "list:demo-skill")
+
+    def test_add_tile_list_needs_valid_skill_id(self):
+        with tempfile.TemporaryDirectory() as t:
+            path = os.path.join(t, "p.json")
+            for bad in (None, "", "..", "a/b", "x\n"):
+                with self.assertRaises(ValueError, msg=repr(bad)):
+                    presets.add_tile("work", "list", path, skill_id=bad)
+            with self.assertRaises(ValueError):
+                presets.add_tile("work", "jira", path, skill_id="demo")
+            self.assertFalse(os.path.exists(path), "nothing written on error")
+            presets.add_tile("work", "list", path, skill_id="demo")
+            with self.assertRaises(ValueError):
+                presets.add_tile("work", "list", path, skill_id="demo")
+            self.assertEqual(len(presets.load("work", t, path)["tiles"]), 1)
+
     def test_check_clean_finds_value(self):
         with tempfile.TemporaryDirectory() as t:
             priv = os.path.join(t, "p.json")

@@ -201,20 +201,25 @@
    * The start layout from the preset's tiles ([{kind, x, y, w, h, id?}], as in
    * presets/<name>.json). The id is the tile's own id, else its kind, else
    * kind-2, kind-3 for repeats. A list tile must carry id "list:<skill-id>".
-   * Returns meta/layout items, or null when the tiles are missing or malformed.
+   * A malformed tile (unknown kind, list tile without a valid id, missing size,
+   * repeated id) is left out; the other tiles stay.
+   * Returns {items, skipped}: items are meta/layout items, or null when no tile
+   * is left; skipped is the number of tiles left out.
    */
   function presetLayout(tiles) {
-    if (!Array.isArray(tiles) || !tiles.length) return null;
-    var used = {}, items = [];
+    if (!Array.isArray(tiles) || !tiles.length) return { items: null, skipped: 0 };
+    var used = {}, items = [], skipped = 0;
     for (var i = 0; i < tiles.length; i++) {
       var t = tiles[i];
-      if (!t || typeof t !== 'object') return null;
-      var id = typeof t.id === 'string' && t.id ? t.id : str(t.kind);
-      for (var n = 2; used[id] && !(typeof t.id === 'string' && t.id); n++) id = str(t.kind) + '-' + n;
+      var own = t && typeof t === 'object' && typeof t.id === 'string' && t.id ? t.id : '';
+      var id = own || str(t && t.kind);
+      for (var n = 2; used[id] && !own; n++) id = str(t.kind) + '-' + n;
+      var item = t && typeof t === 'object' ? { id: id, kind: t.kind, x: t.x, y: t.y, w: t.w, h: t.h } : null;
+      if (!item || used[id] || !validLayout({ items: [item] })) { skipped++; continue; }
       used[id] = 1;
-      items.push({ id: id, kind: t.kind, x: t.x, y: t.y, w: t.w, h: t.h });
+      items.push(item);
     }
-    return validLayout({ items: items });
+    return { items: items.length ? items : null, skipped: skipped };
   }
 
   // German page copy for a tile without rows. Keys: none = no database in this
