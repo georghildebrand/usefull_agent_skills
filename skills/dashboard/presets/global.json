@@ -1,0 +1,17 @@
+{
+  "name": "global",
+  "tiles": [
+    {"kind": "todos", "x": 0, "y": 0, "w": 6, "h": 4},
+    {"kind": "jira", "x": 6, "y": 0, "w": 6, "h": 4},
+    {"kind": "sessions", "x": 0, "y": 4, "w": 6, "h": 4},
+    {"kind": "status", "x": 6, "y": 4, "w": 6, "h": 4},
+    {"kind": "statustable", "x": 0, "y": 8, "w": 12, "h": 4},
+    {"kind": "feed", "x": 0, "y": 12, "w": 12, "h": 4}
+  ],
+  "filters": {},
+  "sources": {
+    "jira": "<jira project keys>",
+    "confluence": "<confluence space keys>",
+    "todos": "<todo project slugs>"
+  }
+}

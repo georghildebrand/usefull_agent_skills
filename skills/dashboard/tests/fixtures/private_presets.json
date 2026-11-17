@@ -1,0 +1,14 @@
+{
+  "presets": {
+    "work": {
+      "url": "https://claude.ai/artifact/TESTONLY",
+      "tiles": [{"kind": "todos", "x": 0, "y": 0, "w": 6, "h": 4}],
+      "filters": {"owner": "tester"},
+      "sources": {"jira": "ACME"}
+    },
+    "solo": {
+      "tiles": [{"kind": "note", "x": 0, "y": 0, "w": 3, "h": 2}]
+    }
+  },
+  "denyList": ["ACME", "Initech", "ab"]
+}
