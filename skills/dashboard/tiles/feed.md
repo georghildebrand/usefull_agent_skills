@@ -13,9 +13,9 @@ Confluence, two queries (changed in the spaces, and mentions of the user):
 
 ```
 atlassian-cli --profile <profile> confluence api /wiki/rest/api/search \
-  --query 'cql=space in (<spaces>) and lastmodified >= "<since>"' --query limit=50 --output <scratchpad>/cf-changed.json
+  --query 'cql=space in (<spaces>) and lastmodified >= "<since>"' --query limit=50 --output <scratchpad>/cf-changed.json --force
 atlassian-cli --profile <profile> confluence api /wiki/rest/api/search \
-  --query 'cql=mention = currentUser() and lastmodified >= "<since>"' --query limit=50 --output <scratchpad>/cf-mention.json
+  --query 'cql=mention = currentUser() and lastmodified >= "<since>"' --query limit=50 --output <scratchpad>/cf-mention.json --force
 ```
 
 Jira, two queries (changed in the projects, and watched by the user):
@@ -23,10 +23,10 @@ Jira, two queries (changed in the projects, and watched by the user):
 ```
 atlassian-cli --profile <profile> jira api /rest/api/3/search/jql \
   --query 'jql=project in (<keys>) and updated >= "<since>"' --query maxResults=50 \
-  --query 'fields=summary,updated' --output <scratchpad>/jira-changed.json
+  --query 'fields=summary,updated' --output <scratchpad>/jira-changed.json --force
 atlassian-cli --profile <profile> jira api /rest/api/3/search/jql \
   --query 'jql=watcher = currentUser() and updated >= "<since>"' --query maxResults=50 \
-  --query 'fields=summary,updated' --output <scratchpad>/jira-watching.json
+  --query 'fields=summary,updated' --output <scratchpad>/jira-watching.json --force
 ```
 
 ## Build

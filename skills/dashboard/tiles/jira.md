@@ -8,12 +8,12 @@ Read-only. From the preset it needs `sources.jira` (project keys) and the CLI pr
 (`sources.jiraProfile`, or the default profile). Both live in the private file.
 
 ```
-atlassian-cli --profile <profile> jira api /rest/api/3/myself --output <scratchpad>/myself.json
+atlassian-cli --profile <profile> jira api /rest/api/3/myself --output <scratchpad>/myself.json --force
 atlassian-cli --profile <profile> jira api /rest/api/3/search/jql \
   --query 'jql=project in (<keys>) AND statusCategory != Done AND (assignee = currentUser() OR reporter = currentUser()) ORDER BY updated DESC' \
   --query maxResults=100 \
   --query 'fields=summary,status,issuetype,priority,updated,created,assignee,reporter,project,parent' \
-  --output <scratchpad>/jira-search.json
+  --output <scratchpad>/jira-search.json --force
 ```
 
 ## Build
