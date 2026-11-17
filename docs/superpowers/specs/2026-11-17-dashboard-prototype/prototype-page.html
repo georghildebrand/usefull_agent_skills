@@ -1,0 +1,782 @@
+<title>Widget-Raster</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one toolbar row, then a 12-column drag-and-resize grid on a dotted ground.
+   Each widget header shows its live grid coordinates (x, y, width x height in cells). */
+:root {
+  --bg: #eef1f4;
+  --dot: #c9d0d8;
+  --surface: #ffffff;
+  --line: #d5dbe2;
+  --fg: #17212b;
+  --muted: #5b6875;
+  --accent: #0b6e8f;
+  --accent-soft: #d9ecf2;
+  --good: #1f7a4d;
+  --warn: #b4541a;
+  --font-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10161c; --dot: #2a3440; --surface: #19222b; --line: #2c3742;
+    --fg: #e6ecf1; --muted: #94a2af; --accent: #5cc0de; --accent-soft: #16343f; --good: #5fcf96; --warn: #f0a060;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10161c; --dot: #2a3440; --surface: #19222b; --line: #2c3742;
+  --fg: #e6ecf1; --muted: #94a2af; --accent: #5cc0de; --accent-soft: #16343f; --good: #5fcf96; --warn: #f0a060;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.page { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; justify-content: space-between; }
+.top h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.top p { margin: 4px 0 0; color: var(--muted); max-width: 62ch; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn {
+  font: 500 14px var(--font-body); color: var(--fg);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+  padding: 7px 12px; cursor: pointer;
+}
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible, .w-x:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+
+.status { font: 400 12px var(--font-mono); color: var(--muted); min-height: 18px; }
+
+.ground {
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1.5px);
+  background-size: 16px 16px;
+  border: 1px dashed var(--line); border-radius: 8px;
+  padding: 4px; min-height: 200px; min-width: 0;
+}
+
+/* widget */
+.grid-stack > .grid-stack-item > .grid-stack-item-content {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.w-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 6px 6px 10px; border-bottom: 1px solid var(--line);
+  cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none;
+}
+.grid-stack-static .w-head { cursor: default; }
+.w-title { font: 600 13px var(--font-display); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.w-pos { font: 400 11px var(--font-mono); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.w-x { border: 0; background: none; color: var(--muted); font-size: 16px; line-height: 1; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; }
+.w-x:hover { background: var(--accent-soft); color: var(--fg); }
+.grid-stack-static .w-x { display: none; }
+.w-body { flex: 1; min-height: 0; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+
+.stat-num { font: 600 34px/1.1 var(--font-display); font-variant-numeric: tabular-nums; }
+.stat-sub { color: var(--muted); font-size: 13px; }
+.stat-delta { color: var(--good); font: 500 12px var(--font-mono); }
+
+.rng { display: flex; gap: 4px; }
+.rng-b { font: 500 12px var(--font-body); color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+.rng-b:hover { border-color: var(--accent); }
+.rng-b:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rng-b[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
+.spark-wrap { position: relative; flex: 1; min-height: 48px; touch-action: pan-y; cursor: crosshair; }
+.spark { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.spark .area { fill: var(--accent-soft); }
+.spark .ln { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.spark .avg { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.mk, .cur-dot { position: absolute; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--surface); transform: translate(-50%, -50%); pointer-events: none; }
+.mk.hi { background: var(--good); }
+.mk.lo { background: var(--warn); }
+.cur-dot { background: var(--accent); }
+.cur { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--muted); pointer-events: none; }
+.tip { position: absolute; top: 0; font: 500 11px var(--font-mono); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; white-space: nowrap; pointer-events: none; font-variant-numeric: tabular-nums; }
+.cap { color: var(--muted); font-size: 12px; }
+.cap b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.cap .k-hi { color: var(--good); }
+.cap .k-lo { color: var(--warn); }
+
+.tl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.tl li { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: baseline; }
+.flt { display: flex; flex-wrap: wrap; gap: 6px; }
+.inp { flex: 1 1 120px; min-width: 0; font: 400 13px var(--font-body); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; }
+.inp:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sel.sm, .btn.sm { font-size: 12px; padding: 3px 6px; border-radius: 4px; }
+.flag { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.flag.s-in_progress { color: var(--accent); border-color: var(--accent); }
+.flag.s-blocked { color: var(--warn); border-color: var(--warn); }
+.zl { color: var(--fg); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.zl:hover { text-decoration-color: var(--accent); }
+.zl:focus-visible, .cp:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.note-in { grid-column: 2; font-size: 12px; }
+.kc { user-select: all; -webkit-user-select: all; }
+.cp { font: 500 11px var(--font-body); color: var(--accent); background: none; border: 0; padding: 0 2px; cursor: pointer; }
+.flag.set { color: var(--fg); background: var(--accent-soft); border-color: var(--accent); font-weight: 500; }
+.grp { font: 600 11px var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 6px 0 0; }
+.pill { font: 500 11px var(--font-mono); padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.pill.s-in_progress { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.pill.s-blocked { color: var(--warn); border-color: var(--warn); }
+.tl .t { min-width: 0; overflow-wrap: anywhere; }
+.tl .p { grid-column: 2; font: 400 11px var(--font-mono); color: var(--muted); }
+.empty { color: var(--muted); font-size: 13px; margin: 0; }
+.st { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.st-text { flex: 1; min-height: 0; overflow: auto; white-space: pre-wrap; font-size: 14px; }
+.st-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sel { font: 500 14px var(--font-body); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; max-width: 100%; }
+.sel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.bars { display: grid; grid-template-columns: auto 1fr auto; gap: 6px 10px; align-items: center; font-size: 13px; }
+.bars .track { height: 8px; background: var(--accent-soft); border-radius: 2px; min-width: 0; }
+.bars .fill { height: 100%; background: var(--accent); border-radius: 2px; }
+.bars .val { font: 400 12px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+
+.note { flex: 1; min-height: 40px; width: 100%; box-sizing: border-box; resize: none;
+  font: 400 14px/1.5 var(--font-body); color: var(--fg); background: transparent; border: 0; padding: 0; }
+
+.grid-stack-placeholder > .placeholder-content {
+  background-color: var(--accent-soft) !important; border: 1px dashed var(--accent); border-radius: 6px;
+}
+.fail { padding: 24px; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .grid-stack-animate, .grid-stack-animate .grid-stack-item { transition: none !important; }
+}
+
+/* ---- GridStack 10.3.1 stylesheet, inlined because artifacts block external stylesheets ---- */
+.grid-stack{position:relative}.grid-stack-rtl{direction:ltr}.grid-stack-rtl>.grid-stack-item{direction:rtl}.grid-stack-placeholder>.placeholder-content{background-color:rgba(0,0,0,.1);margin:0;position:absolute;width:auto;z-index:0!important}.grid-stack>.grid-stack-item{position:absolute;padding:0}.grid-stack>.grid-stack-item>.grid-stack-item-content{margin:0;position:absolute;width:auto}.grid-stack-item>.ui-resizable-handle{position:absolute;font-size:.1px;display:block;-ms-touch-action:none;touch-action:none}.grid-stack-item.ui-resizable-autohide>.ui-resizable-handle,.grid-stack-item.ui-resizable-disabled>.ui-resizable-handle{display:none}.grid-stack-item>.ui-resizable-ne,.grid-stack-item>.ui-resizable-nw,.grid-stack-item>.ui-resizable-se,.grid-stack-item>.ui-resizable-sw{background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="%23808a94" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 20 20"><path d="m10 3 2 2H8l2-2v14l-2-2h4l-2 2"/></svg>');background-repeat:no-repeat;background-position:center}.grid-stack-item>.ui-resizable-ne{transform:translate(0,10px) rotate(45deg)}.grid-stack-item>.ui-resizable-sw{transform:rotate(45deg)}.grid-stack-item>.ui-resizable-nw{transform:translate(0,10px) rotate(-45deg)}.grid-stack-item>.ui-resizable-se{transform:rotate(-45deg)}.grid-stack-item>.ui-resizable-nw{cursor:nw-resize;width:20px;height:20px;top:0}.grid-stack-item>.ui-resizable-n{cursor:n-resize;height:10px;top:0;left:25px;right:25px}.grid-stack-item>.ui-resizable-ne{cursor:ne-resize;width:20px;height:20px;top:0}.grid-stack-item>.ui-resizable-e{cursor:e-resize;width:10px;top:15px;bottom:15px}.grid-stack-item>.ui-resizable-se{cursor:se-resize;width:20px;height:20px}.grid-stack-item>.ui-resizable-s{cursor:s-resize;height:10px;left:25px;bottom:0;right:25px}.grid-stack-item>.ui-resizable-sw{cursor:sw-resize;width:20px;height:20px}.grid-stack-item>.ui-resizable-w{cursor:w-resize;width:10px;top:15px;bottom:15px}.grid-stack-item.ui-draggable-dragging>.ui-resizable-handle{display:none!important}.grid-stack-item.ui-draggable-dragging{will-change:left,top;cursor:move}.grid-stack-item.ui-resizable-resizing{will-change:width,height}.ui-draggable-dragging,.ui-resizable-resizing{z-index:10000}.ui-draggable-dragging>.grid-stack-item-content,.ui-resizable-resizing>.grid-stack-item-content{box-shadow:1px 4px 6px rgba(0,0,0,.2);opacity:.8}.grid-stack-animate,.grid-stack-animate .grid-stack-item{transition:left .3s,top .3s,height .3s,width .3s}.grid-stack-animate .grid-stack-item.grid-stack-placeholder,.grid-stack-animate .grid-stack-item.ui-draggable-dragging,.grid-stack-animate .grid-stack-item.ui-resizable-resizing{transition:left 0s,top 0s,height 0s,width 0s}.grid-stack>.grid-stack-item[gs-y="0"]{top:0}.grid-stack>.grid-stack-item[gs-x="0"]{left:0}.gs-12>.grid-stack-item{width:8.333%}.gs-12>.grid-stack-item[gs-x="1"]{left:8.333%}.gs-12>.grid-stack-item[gs-w="2"]{width:16.667%}.gs-12>.grid-stack-item[gs-x="2"]{left:16.667%}.gs-12>.grid-stack-item[gs-w="3"]{width:25%}.gs-12>.grid-stack-item[gs-x="3"]{left:25%}.gs-12>.grid-stack-item[gs-w="4"]{width:33.333%}.gs-12>.grid-stack-item[gs-x="4"]{left:33.333%}.gs-12>.grid-stack-item[gs-w="5"]{width:41.667%}.gs-12>.grid-stack-item[gs-x="5"]{left:41.667%}.gs-12>.grid-stack-item[gs-w="6"]{width:50%}.gs-12>.grid-stack-item[gs-x="6"]{left:50%}.gs-12>.grid-stack-item[gs-w="7"]{width:58.333%}.gs-12>.grid-stack-item[gs-x="7"]{left:58.333%}.gs-12>.grid-stack-item[gs-w="8"]{width:66.667%}.gs-12>.grid-stack-item[gs-x="8"]{left:66.667%}.gs-12>.grid-stack-item[gs-w="9"]{width:75%}.gs-12>.grid-stack-item[gs-x="9"]{left:75%}.gs-12>.grid-stack-item[gs-w="10"]{width:83.333%}.gs-12>.grid-stack-item[gs-x="10"]{left:83.333%}.gs-12>.grid-stack-item[gs-w="11"]{width:91.667%}.gs-12>.grid-stack-item[gs-x="11"]{left:91.667%}.gs-12>.grid-stack-item[gs-w="12"]{width:100%}.gs-1>.grid-stack-item{width:100%}
+</style>
+
+<div class="page">
+  <div class="top">
+    <div>
+      <h1>Widget-Raster</h1>
+      <p>Ziehe ein Widget an seiner Kopfzeile. Ändere die Größe an der Ecke unten rechts. Alle Zahlen sind Beispieldaten. Aufgaben und Status kommen aus der Datenbank dieser Seite.</p>
+    </div>
+    <div class="tools">
+      <select class="sel" id="add-kind" aria-label="Art des neuen Widgets">
+        <option value="note">Notiz</option>
+        <option value="status">Status zum Anhören</option>
+        <option value="todo">Aufgaben</option>
+        <option value="sessions">Sitzungen</option>
+        <option value="jira">Jira-Tickets</option>
+        <option value="spark">Aufrufe pro Tag</option>
+        <option value="bars">Aufrufe nach Bereich</option>
+        <option value="statA">Aufrufe heute</option>
+        <option value="statB">Antwortzeit</option>
+      </select>
+      <button class="btn primary" id="btn-add" type="button">Widget hinzufügen</button>
+      <button class="btn" id="btn-lock" type="button" aria-pressed="false">Raster sperren</button>
+      <button class="btn" id="btn-reset" type="button">Anordnung zurücksetzen</button>
+    </div>
+  </div>
+  <div class="status" id="status" role="status"></div>
+  <div class="ground"><div class="grid-stack" id="grid"></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack-all.js"></script>
+<script>
+(function () {
+  var KEY = 'widget-raster-layout-v3';
+  var gridEl = document.getElementById('grid');
+  var statusEl = document.getElementById('status');
+
+  if (typeof GridStack === 'undefined') {
+    gridEl.innerHTML = '<p class="fail">GridStack wurde nicht geladen. Das Raster kann nicht angezeigt werden.</p>';
+    return;
+  }
+
+  var DEFAULTS = [
+    { id: 'stat-a', kind: 'statA', x: 0, y: 0, w: 3, h: 2 },
+    { id: 'stat-b', kind: 'statB', x: 3, y: 0, w: 3, h: 2 },
+    { id: 'spark',  kind: 'spark', x: 6, y: 0, w: 6, h: 3 },
+    { id: 'todo',   kind: 'todo',  x: 0, y: 2, w: 6, h: 4 },
+    { id: 'status', kind: 'status', x: 6, y: 3, w: 6, h: 3 },
+    { id: 'bars',   kind: 'bars',  x: 6, y: 6, w: 6, h: 3 },
+    { id: 'sessions', kind: 'sessions', x: 0, y: 6, w: 6, h: 4 },
+    { id: 'jira', kind: 'jira', x: 6, y: 11, w: 6, h: 5 },
+    { id: 'note-0', kind: 'note',  x: 6, y: 9, w: 6, h: 2 }
+  ];
+
+  var TITLES = { statA: 'Aufrufe heute', statB: 'Antwortzeit', spark: 'Aufrufe pro Tag', todo: 'Aufgaben (zotero2ai)', status: 'Status zum Anhören', sessions: 'Sitzungen', jira: 'Jira-Tickets', bars: 'Aufrufe nach Bereich', note: 'Notiz' };
+  var SIZES = { note: [3, 2], status: [6, 3], todo: [6, 4], sessions: [6, 4], jira: [6, 5], spark: [6, 3], bars: [6, 3], statA: [3, 2], statB: [3, 2] };
+  var SERIES = [198, 224, 251, 243, 176, 159, 232, 261, 274, 290, 268, 183, 171, 246, 279, 305, 212, 240, 231, 268, 301, 188, 164, 255, 290, 312, 344, 330, 207, 181];
+  var range = 14;
+
+  // One scale for line, average line, markers and hover cursor: x and y in percent of the plot box.
+  function sparkModel() {
+    var data = SERIES.slice(-range);
+    var max = Math.max.apply(null, data), min = Math.min.apply(null, data);
+    var avg = Math.round(data.reduce(function (a, b) { return a + b; }, 0) / data.length);
+    return {
+      data: data, max: max, min: min, avg: avg,
+      x: function (i) { return (i / (data.length - 1)) * 100; },
+      y: function (v) { return 90 - ((v - min) / (max - min)) * 72; }
+    };
+  }
+  function dayLabel(i, len) {
+    var back = len - 1 - i;
+    return back === 0 ? 'heute' : back === 1 ? 'gestern' : 'vor ' + back + ' Tagen';
+  }
+
+  function sparkHtml() {
+    var m = sparkModel();
+    var pts = m.data.map(function (v, i) { return m.x(i).toFixed(2) + ',' + m.y(v).toFixed(2); }).join(' ');
+    var iHi = m.data.indexOf(m.max), iLo = m.data.indexOf(m.min);
+    var ya = m.y(m.avg).toFixed(2);
+    return '<div class="rng" role="group" aria-label="Zeitraum">' + [7, 14, 30].map(function (n) {
+        return '<button type="button" class="rng-b" data-range="' + n + '" aria-pressed="' + (n === range) + '">' + n + ' Tage</button>';
+      }).join('') + '</div>' +
+      '<div class="spark-wrap" data-spark>' +
+        '<svg class="spark" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Aufrufe pro Tag über ' + range + ' Tage: Hoch ' + m.max + ', Tief ' + m.min + ', Schnitt ' + m.avg + '">' +
+          '<polygon class="area" points="0,100 ' + pts + ' 100,100"/>' +
+          '<polyline class="ln" points="' + pts + '"/>' +
+          '<line class="avg" x1="0" x2="100" y1="' + ya + '" y2="' + ya + '"/></svg>' +
+        '<span class="mk hi" style="left:' + m.x(iHi).toFixed(2) + '%;top:' + m.y(m.max).toFixed(2) + '%"></span>' +
+        '<span class="mk lo" style="left:' + m.x(iLo).toFixed(2) + '%;top:' + m.y(m.min).toFixed(2) + '%"></span>' +
+        '<span class="cur" hidden></span><span class="cur-dot" hidden></span><span class="tip" hidden></span>' +
+      '</div>' +
+      '<div class="cap"><span class="k-hi">●</span> Hoch <b>' + m.max + '</b> · <span class="k-lo">●</span> Tief <b>' + m.min + '</b> · Schnitt <b>' + m.avg + '</b> (gestrichelt)</div>';
+  }
+
+  function sparkHover(wrap, clientX) {
+    var m = sparkModel(), r = wrap.getBoundingClientRect();
+    if (!r.width) return;
+    var i = Math.max(0, Math.min(m.data.length - 1, Math.round(((clientX - r.left) / r.width) * (m.data.length - 1))));
+    var x = m.x(i), cur = wrap.querySelector('.cur'), dot = wrap.querySelector('.cur-dot'), tip = wrap.querySelector('.tip');
+    cur.style.left = x + '%';
+    dot.style.left = x + '%'; dot.style.top = m.y(m.data[i]) + '%';
+    tip.textContent = dayLabel(i, m.data.length) + ' · ' + m.data[i];
+    tip.style.left = x + '%';
+    tip.style.transform = x < 25 ? 'translateX(0)' : x > 75 ? 'translateX(-100%)' : 'translateX(-50%)';
+    cur.hidden = dot.hidden = tip.hidden = false;
+  }
+  function sparkLeave(wrap) {
+    ['.cur', '.cur-dot', '.tip'].forEach(function (s) { wrap.querySelector(s).hidden = true; });
+  }
+
+  function barsHtml() {
+    var rows = [['Suche', 412], ['Berichte', 287], ['Export', 164], ['Einstellungen', 58]];
+    var max = rows[0][1];
+    return '<div class="bars">' + rows.map(function (r) {
+      return '<span>' + r[0] + '</span><span class="track"><span class="fill" style="display:block;width:' + Math.round(r[1] / max * 100) + '%"></span></span><span class="val">' + r[1] + '</span>';
+    }).join('') + '</div>';
+  }
+
+  function bodyHtml(kind, id) {
+    switch (kind) {
+      case 'statA': return '<div class="stat-num">1.284</div><div class="stat-sub">Seitenaufrufe</div><div class="stat-delta">+8 % zu gestern</div>';
+      case 'statB': return '<div class="stat-num">182 ms</div><div class="stat-sub">Median, letzte Stunde</div><div class="stat-delta">−12 ms zu gestern</div>';
+      case 'spark': return sparkHtml();
+      case 'bars':  return barsHtml();
+      case 'todo':   return '<div data-todos>' + todoShell() + '</div>';
+      case 'status': return '<div class="st" data-status>' + statusHtml() + '</div>';
+      case 'sessions': return '<div data-sessions>' + sessionsShell() + '</div>';
+      case 'jira': return '<div data-jira>' + jiraShell() + '</div>';
+      default:      return '<textarea class="note" id="' + id + '-text" aria-label="Notiztext" placeholder="Text hier schreiben …"></textarea>';
+    }
+  }
+
+  function toWidget(item) {
+    return {
+      id: item.id, x: item.x, y: item.y, w: item.w, h: item.h, minW: 2,
+      content: '<div class="w-head"><span class="w-title">' + TITLES[item.kind] + '</span><span class="w-pos" data-pos></span>' +
+               '<button class="w-x" type="button" aria-label="Widget entfernen">×</button></div>' +
+               '<div class="w-body">' + bodyHtml(item.kind, item.id) + '</div>'
+    };
+  }
+
+  // ---- data from the page database (Claude writes it in the session; the page reads it and stores status marks) ----
+  var dbState = 'loading';            // loading | slow | ok | none
+  var lists = [], flags = {}, notes = {}, flagMsg = '', dbRef = null, writeChain = Promise.resolve();
+  var sessionsDoc = null, sessionsLoaded = false;
+  var statusDocs = [], statusLoaded = false, statusSel = 'current', statusNote = '';
+  var tts = null, ttsReady = false, ttsState = 'idle', ttsMsg = '';
+  var STATUS_LABEL = { in_progress: 'in Arbeit', blocked: 'blockiert', todo: 'offen', done: 'erledigt', cancelled: 'abgebrochen' };
+  var FLAG_ORDER = ['in_progress', 'done', 'blocked', 'cancelled', 'todo'];
+  var FKEY = 'widget-raster-filters-v1';
+  var flt = { q: '', project: '', status: '', prio: '', age: '60', sq: '', ssort: 'active',
+              jq: '', jproject: '', jrole: '', jstat: '', jtype: '', jage: '60' };
+  var jiraDoc = null, jiraLoaded = false;
+  try {
+    var savedFlt = JSON.parse(localStorage.getItem(FKEY) || 'null');
+    if (savedFlt && typeof savedFlt === 'object') Object.keys(flt).forEach(function (k) { if (typeof savedFlt[k] === 'string') flt[k] = savedFlt[k]; });
+  } catch (e) {}
+  function saveFlt() { try { localStorage.setItem(FKEY, JSON.stringify(flt)); } catch (e) {} }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function fmt(iso, dateOnly) {
+    try {
+      var d = new Date(iso);
+      if (isNaN(d)) return '';
+      return dateOnly ? d.toLocaleDateString('de-DE', { dateStyle: 'medium' }) : d.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+    } catch (e) { return ''; }
+  }
+  function agoText(iso, word) {
+    var ms = Date.now() - new Date(iso).getTime();
+    if (!(ms >= 0)) return '';
+    var min = Math.round(ms / 60000);
+    if (min < 60) return word + ' ' + min + ' Min.';
+    var h = Math.round(min / 60);
+    return h < 36 ? word + ' ' + h + ' Std.' : word + ' ' + Math.round(h / 24) + ' Tagen';
+  }
+  function selHtml(name, opts, label) {
+    return '<select class="sel sm" data-f="' + name + '" aria-label="' + esc(label) + '">' + opts.map(function (o) {
+      return '<option value="' + esc(o[0]) + '"' + (flt[name] === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+    }).join('') + '</select>';
+  }
+  function projectOpts() {
+    return [['', 'alle Projekte']].concat(lists.map(function (l) { return [l.id, l.project || l.id]; }));
+  }
+
+  // ---- tasks ----
+  function todoShell() {
+    return '<div class="flt">' +
+      '<input type="search" class="inp" data-f="q" placeholder="Aufgaben suchen …" aria-label="Aufgaben durchsuchen" value="' + esc(flt.q) + '">' +
+      selHtml('project', projectOpts(), 'Projekt') +
+      selHtml('status', [['', 'jeder Status'], ['in_progress', 'in Arbeit'], ['blocked', 'blockiert'], ['todo', 'offen']], 'Status') +
+      selHtml('prio', [['', 'jede Priorität'], ['top', 'critical + high']], 'Priorität') +
+      selHtml('age', [['30', 'geändert in 30 Tagen'], ['60', 'geändert in 60 Tagen'], ['90', 'geändert in 90 Tagen'], ['', 'jedes Alter']], 'Alter') +
+      '</div><div data-todo-list>' + todoListHtml() + '</div>';
+  }
+  function pendingFlags() {
+    return Object.keys(flags).filter(function (k) { return typeof flags[k] === 'string' && STATUS_LABEL[flags[k]]; }).length;
+  }
+  function todoListHtml() {
+    if (dbState === 'none') return '<p class="empty">Die Aufgaben sind in dieser Ansicht nicht erreichbar.</p>';
+    if (dbState === 'loading') return '<p class="empty">Lade Aufgaben …</p>';
+    var now = Date.now(), maxAge = flt.age ? Number(flt.age) * 864e5 : 0, q = flt.q.trim().toLowerCase();
+    var all = 0, rows = [], synced = '';
+    lists.forEach(function (l) {
+      if (l.syncedAt && l.syncedAt > synced) synced = l.syncedAt;
+      (Array.isArray(l.items) ? l.items : []).forEach(function (t) {
+        all++;
+        if (flt.project && l.id !== flt.project) return;
+        if (flt.status && t.status !== flt.status) return;
+        if (flt.prio === 'top' && t.priority !== 'critical' && t.priority !== 'high') return;
+        if (maxAge && t.updatedAt && now - new Date(t.updatedAt).getTime() > maxAge) return;
+        if (q && String(t.title).toLowerCase().indexOf(q) < 0) return;
+        rows.push({ t: t, project: l.project || l.id });
+      });
+    });
+    if (!all) return '<p class="empty">' + (dbState === 'slow' ? 'Die Aufgaben sind noch nicht erreichbar. Die Seite versucht es weiter.' : 'Noch keine Aufgaben abgeglichen. Claude schreibt die offenen ToDos aus zotero2ai in der Sitzung hierher.') + '</p>';
+    rows.sort(function (a, b) { return String(b.t.updatedAt || '').localeCompare(String(a.t.updatedAt || '')); });
+    var pend = pendingFlags();
+    var cap = rows.length + ' von ' + all + ' Aufgaben' + (synced ? ' · abgeglichen ' + fmt(synced) : '') +
+      (pend ? ' · ' + pend + ' Status-Marken warten auf den Abgleich mit zotero2ai' : '');
+    if (!rows.length) return '<div class="cap">' + esc(flagMsg || cap) + '</div><p class="empty">Kein Treffer mit diesen Filtern.</p>';
+    return '<div class="cap">' + esc(flagMsg || cap) + '</div><ul class="tl">' + rows.map(function (r) {
+      var t = r.t, f = typeof flags[t.key] === 'string' && STATUS_LABEL[flags[t.key]] && flags[t.key] !== t.status ? flags[t.key] : '';
+      var opts = '<option value=""' + (f ? '' : ' selected') + '>' + esc(STATUS_LABEL[t.status] || t.status) + '</option>' +
+        FLAG_ORDER.filter(function (s) { return s !== t.status; }).map(function (s) {
+          return '<option value="' + s + '"' + (f === s ? ' selected' : '') + '>→ ' + STATUS_LABEL[s] + '</option>';
+        }).join('');
+      return '<li><select class="sel sm flag' + (f ? ' set' : '') + ' s-' + esc(t.status) + '" data-flag="' + esc(t.key) + '" aria-label="Status ändern: ' + esc(t.title) + '">' + opts + '</select>' +
+        '<a class="t zl" href="zotero://select/library/items/' + encodeURIComponent(t.key) + '" title="In Zotero öffnen">' + esc(t.title) + '</a>' +
+        '<span class="p">' + esc([r.project, t.priority, t.updatedAt ? 'geändert ' + fmt(t.updatedAt, true) : ''].filter(Boolean).join(' · ')) +
+        ' · <span class="kc">' + esc(t.key) + '</span> <button type="button" class="cp" data-copy="' + esc(t.key) + '">kopieren</button></span>' +
+        (f ? '<input type="text" class="inp note-in" data-note="' + esc(t.key) + '" maxlength="500" placeholder="Kurzer Kommentar zur Änderung (optional)" aria-label="Kommentar zur Änderung: ' + esc(t.title) + '" value="' + esc(notes[t.key] || '') + '">' : '') +
+        '</li>';
+    }).join('') + '</ul>';
+  }
+  function renderTodos() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-todos]'), function (el) {
+      var list = el.querySelector('[data-todo-list]');
+      if (list) list.innerHTML = todoListHtml();
+      var ps = el.querySelector('[data-f="project"]');
+      if (ps && ps.options.length !== lists.length + 1) {
+        ps.innerHTML = projectOpts().map(function (o) {
+          return '<option value="' + esc(o[0]) + '"' + (flt.project === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+        }).join('');
+      }
+    });
+  }
+  // A status mark is stored in the page database. zotero2ai changes only at Claude's next sync.
+  function setFlag(key, value) {
+    if (!dbRef || !key) return;
+    var before = flags[key];
+    flags[key] = value; flagMsg = ''; renderTodos();
+    var patch = {}; patch[key] = value;
+    writeChain = writeChain.then(function () { return dbRef.doc('todostate/flags').update(patch); }).catch(function () {
+      flags[key] = before;
+      flagMsg = 'Die Status-Marke wurde nicht gespeichert. In dieser Ansicht fehlt das Schreibrecht.';
+      renderTodos();
+    });
+  }
+
+  // ---- Jira tickets (Claude writes jira/open in the session; links open Jira in a new tab) ----
+  function jiraItems() { return jiraDoc && Array.isArray(jiraDoc.items) ? jiraDoc.items : []; }
+  function uniq(arr) { var s = {}; return arr.filter(function (x) { return x && !s[x] && (s[x] = 1); }).sort(); }
+  function jiraShell() {
+    var it = jiraItems();
+    return '<div class="flt">' +
+      '<input type="search" class="inp" data-f="jq" placeholder="Tickets suchen …" aria-label="Tickets durchsuchen" value="' + esc(flt.jq) + '">' +
+      selHtml('jproject', [['', 'alle Projekte']].concat(uniq(it.map(function (x) { return x.project; })).map(function (p) { return [p, p]; })), 'Projekt') +
+      selHtml('jrole', [['', 'zugewiesen + gemeldet'], ['assignee', 'mir zugewiesen'], ['reporter', 'von mir gemeldet']], 'Rolle') +
+      selHtml('jstat', [['', 'jeder Status'], ['indeterminate', 'in Arbeit'], ['new', 'noch nicht begonnen']], 'Status') +
+      selHtml('jtype', [['', 'jeder Typ']].concat(uniq(it.map(function (x) { return x.type; })).map(function (p) { return [p, p]; })), 'Typ') +
+      selHtml('jage', [['30', 'geändert in 30 Tagen'], ['60', 'geändert in 60 Tagen'], ['90', 'geändert in 90 Tagen'], ['', 'jedes Alter']], 'Alter') +
+      '</div><div data-jira-list>' + jiraListHtml() + '</div>';
+  }
+  function jiraListHtml() {
+    if (dbState === 'none') return '<p class="empty">Die Tickets sind in dieser Ansicht nicht erreichbar.</p>';
+    if (!jiraLoaded) return '<p class="empty">' + (dbState === 'slow' ? 'Die Tickets sind noch nicht erreichbar. Die Seite versucht es weiter.' : 'Lade Tickets …') + '</p>';
+    var all = jiraItems();
+    if (!all.length) return '<p class="empty">Noch keine Tickets abgeglichen. Claude schreibt deine offenen Jira-Tickets in der Sitzung hierher.</p>';
+    var now = Date.now(), maxAge = flt.jage ? Number(flt.jage) * 864e5 : 0, q = flt.jq.trim().toLowerCase();
+    var rows = all.filter(function (t) {
+      if (flt.jproject && t.project !== flt.jproject) return false;
+      if (flt.jrole && t.role !== flt.jrole) return false;
+      if (flt.jstat && t.statusCat !== flt.jstat) return false;
+      if (flt.jtype && t.type !== flt.jtype) return false;
+      if (maxAge && t.updatedAt && now - new Date(t.updatedAt).getTime() > maxAge) return false;
+      if (q && (t.key + ' ' + t.title).toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    }).sort(function (a, b) { return String(b.updatedAt).localeCompare(String(a.updatedAt)); });
+    var base = jiraDoc.baseUrl || '';
+    var cap = '<div class="cap">' + rows.length + ' von ' + all.length + ' offenen Tickets · abgeglichen ' + esc(fmt(jiraDoc.syncedAt)) + '</div>';
+    if (!rows.length) return cap + '<p class="empty">Kein Treffer mit diesen Filtern.</p>';
+    var ROLE = { assignee: 'zugewiesen', reporter: 'gemeldet' };
+    return cap + '<ul class="tl">' + rows.map(function (t) {
+      return '<li><span class="pill' + (t.statusCat === 'indeterminate' ? ' s-in_progress' : '') + '">' + esc(t.status) + '</span>' +
+        '<a class="t zl" href="' + esc(base + encodeURIComponent(t.key)) + '" target="_blank" rel="noopener">' + esc(t.key) + ' ' + esc(t.title) + '</a>' +
+        '<span class="p">' + esc([t.type, t.priority, ROLE[t.role] || '', t.parent ? 'unter ' + t.parent : '', t.updatedAt ? 'geändert ' + fmt(t.updatedAt, true) : ''].filter(Boolean).join(' · ')) + '</span></li>';
+    }).join('') + '</ul>';
+  }
+  function renderJira() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-jira]'), function (el) {
+      if (!el.querySelector('[data-jira-list]') || (jiraLoaded && !el.querySelector('[data-f="jtype"] option:nth-child(2)') && jiraItems().length)) {
+        el.innerHTML = jiraShell();
+      } else {
+        el.querySelector('[data-jira-list]').innerHTML = jiraListHtml();
+      }
+    });
+  }
+  function rerenderFor(name) {
+    if (name.charAt(0) === 'j') renderJira();
+    else if (name === 'sq' || name === 'ssort') renderSessions();
+    else renderTodos();
+  }
+
+  // A note travels with the status mark; Claude reads it at the next sync.
+  function setNote(key, value) {
+    if (!dbRef || !key) return;
+    value = String(value || '').trim().slice(0, 500);
+    if ((notes[key] || '') === value) return;
+    var before = notes[key];
+    notes[key] = value; flagMsg = '';
+    var patch = {}; patch[key] = value;
+    writeChain = writeChain.then(function () { return dbRef.doc('todostate/notes').update(patch); }).then(function () {
+      flagMsg = 'Kommentar gespeichert.'; renderTodos();
+      setTimeout(function () { if (flagMsg === 'Kommentar gespeichert.') { flagMsg = ''; renderTodos(); } }, 2500);
+    }, function () {
+      notes[key] = before;
+      flagMsg = 'Der Kommentar wurde nicht gespeichert. In dieser Ansicht fehlt das Schreibrecht.';
+      renderTodos();
+    });
+  }
+
+  // ---- sessions ----
+  function sessionsShell() {
+    return '<div class="flt">' +
+      '<input type="search" class="inp" data-f="sq" placeholder="Sitzung suchen …" aria-label="Sitzungen durchsuchen" value="' + esc(flt.sq) + '">' +
+      selHtml('ssort', [['active', 'zuletzt aktiv'], ['started', 'Startdatum'], ['name', 'Name']], 'Sortierung') +
+      '</div><div data-session-list>' + sessionListHtml() + '</div>';
+  }
+  function sessionListHtml() {
+    if (dbState === 'none') return '<p class="empty">Die Sitzungen sind in dieser Ansicht nicht erreichbar.</p>';
+    if (!sessionsLoaded) return '<p class="empty">' + (dbState === 'slow' ? 'Die Sitzungen sind noch nicht erreichbar. Die Seite versucht es weiter.' : 'Lade Sitzungen …') + '</p>';
+    var items = sessionsDoc && Array.isArray(sessionsDoc.items) ? sessionsDoc.items.slice() : [];
+    if (!items.length) return '<p class="empty">Noch keine Sitzungen eingetragen. Claude schreibt die laufenden Claude-Code-Sitzungen dieses Rechners hierher.</p>';
+    var total = items.length, q = flt.sq.trim().toLowerCase();
+    if (q) items = items.filter(function (s) { return (String(s.name) + ' ' + String(s.cwd || '')).toLowerCase().indexOf(q) >= 0; });
+    items.sort(function (a, b) {
+      if (flt.ssort === 'name') return String(a.name).localeCompare(String(b.name), 'de');
+      var k = flt.ssort === 'started' ? 'startedAt' : 'lastActiveAt';
+      return String(b[k] || '').localeCompare(String(a[k] || ''));
+    });
+    var KIND = { interactive: 'interaktiv', bg: 'Hintergrund' };
+    var cap = '<div class="cap">' + items.length + ' von ' + total + ' Sitzungen · Stand ' + esc(fmt(sessionsDoc.updatedAt)) + '. Zum Weiterleiten: eine Zeile kommentieren und an Claude senden.</div>';
+    if (!items.length) return cap + '<p class="empty">Kein Treffer für diese Suche.</p>';
+    return cap + '<ul class="tl">' + items.map(function (s) {
+      var busy = s.state && s.state !== 'idle';
+      return '<li><span class="pill' + (busy ? ' s-in_progress' : '') + '">' + esc(s.state === 'idle' ? 'wartet' : s.state === 'busy' ? 'arbeitet' : s.state) + '</span>' +
+        '<span class="t">' + esc(s.name) + '</span>' +
+        '<span class="p">' + esc([KIND[s.kind] || s.kind, s.startedAt ? 'gestartet ' + fmt(s.startedAt) : '', s.lastActiveAt ? 'aktiv ' + agoText(s.lastActiveAt, 'vor') : '', s.cwd].filter(Boolean).join(' · ')) + '</span></li>';
+    }).join('') + '</ul>';
+  }
+  function renderSessions() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-session-list]'), function (el) { el.innerHTML = sessionListHtml(); });
+  }
+
+  // ---- status to listen to ----
+  function curStatus() {
+    var d = null;
+    statusDocs.forEach(function (x) { if (x.id === statusSel) d = x; });
+    return d || statusDocs[0] || null;
+  }
+  function statusHtml() {
+    if (dbState === 'none') return '<p class="empty">Der Status ist in dieser Ansicht nicht erreichbar.</p>';
+    if (!statusLoaded) return '<p class="empty">' + (dbState === 'slow' ? 'Der Status ist noch nicht erreichbar. Die Seite versucht es weiter.' : 'Lade Status …') + '</p>';
+    var d = curStatus();
+    if (!d || !d.text) return '<p class="empty">Noch kein Status gespeichert. Claude schreibt den Stand der Sitzung hierher.</p>';
+    var menu = '<select class="sel sm" data-status-menu aria-label="Status auswählen">' + statusDocs.map(function (x) {
+      return '<option value="' + esc(x.id) + '"' + (x.id === d.id ? ' selected' : '') + '>' + esc(x.title || x.id) + '</option>';
+    }).join('') + '</select>';
+    var speaking = ttsState !== 'idle';
+    var ctl = tts
+      ? '<button type="button" class="btn primary sm" data-act="speak"' + (speaking ? ' hidden' : '') + '>Vorlesen</button>' +
+        '<button type="button" class="btn sm" data-act="stop"' + (speaking ? '' : ' hidden') + '>Stopp</button>'
+      : '';
+    var note = ttsMsg || statusNote || (ttsReady && !tts ? 'Vorlesen geht in dieser Ansicht nicht. Öffne die Seite in Chrome oder Edge.' : '');
+    return '<div class="st-bar">' + menu + ctl + '<button type="button" class="btn sm" data-act="reload">Aktualisieren</button></div>' +
+      '<div class="st-text">' + esc(d.text) + '</div>' +
+      '<div class="cap">' + esc('Stand: ' + fmt(d.updatedAt) + (note ? ' · ' + note : '')) + '</div>';
+  }
+  function renderStatus() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-status]'), function (el) { el.innerHTML = statusHtml(); });
+  }
+  function takeStatus(snap) {
+    statusDocs = snap.docs.map(function (d) { var o = Object.assign({}, d.data()); o.id = d.id; return o; })
+      .sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+    statusLoaded = true;
+  }
+  function reloadStatus() {
+    if (!dbRef) return;
+    statusNote = 'lädt …'; renderStatus();
+    dbRef.collection('status').get().then(function (snap) {
+      takeStatus(snap);
+      statusNote = 'aus der Datenbank neu geladen um ' + new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      renderStatus();
+    }, function () { statusNote = 'Die Datenbank ist gerade nicht erreichbar.'; renderStatus(); });
+  }
+  function speakStatus() {
+    var d = curStatus();
+    if (!tts || !d || !d.text) return;
+    var lines = String(d.text).split(/\n\s*\n/).map(function (s) { return s.trim(); }).filter(Boolean)
+      .map(function (s) { return { text: s.slice(0, 2000) }; });
+    if (!lines.length) return;
+    ttsMsg = '';
+    tts.speak(lines, { language: 'de' }).catch(function (e) {
+      var c = e && e.code;
+      if (c === 'stopped') return;
+      if (c === 'not_granted') tts = null;
+      ttsMsg = c === 'busy' ? 'Gerade läuft ein Diktat. Versuche es danach noch einmal.'
+        : c === 'rate_limited' ? 'Zu viele Vorlese-Anfragen. Versuche es später noch einmal.'
+        : c === 'no_gesture' ? 'Klicke noch einmal auf Vorlesen.'
+        : c === 'not_granted' ? 'Vorlesen ist für diese Seite ausgeschaltet.'
+        : 'Das Vorlesen ist fehlgeschlagen.';
+      renderStatus();
+    });
+  }
+
+  function renderData() { renderTodos(); renderStatus(); renderSessions(); renderJira(); }
+  function initCapabilities() {
+    var use = window.claude && window.claude.use;
+    if (!use) { dbState = 'none'; ttsReady = true; renderData(); return; }
+    window.claude.use('db').then(function (db) {
+      if (!db) { dbState = 'none'; renderData(); return; }
+      dbRef = db;
+      var timer = setTimeout(function () {
+        if (dbState === 'loading') { dbState = 'slow'; renderData(); }
+      }, 10000);
+      db.collection('todolists').onSnapshot(function (snap) {
+        lists = snap.docs.map(function (d) { var o = Object.assign({}, d.data()); o.id = d.id; return o; });
+        if (!snap.metadata.fromCache) clearTimeout(timer);
+        dbState = 'ok';
+        renderData();
+      }, function () { clearTimeout(timer); dbState = 'none'; renderData(); });
+      db.doc('todostate/flags').onSnapshot(function (s) {
+        if (s.metadata.hasPendingWrites) return;
+        flags = s.exists ? Object.assign({}, s.data()) : {};
+        renderTodos();
+      }, function () {});
+      db.doc('jira/open').onSnapshot(function (s) {
+        jiraDoc = s.exists ? s.data() : null; jiraLoaded = true; renderJira();
+      }, function () { jiraLoaded = true; renderJira(); });
+      db.doc('todostate/notes').onSnapshot(function (s) {
+        if (s.metadata.hasPendingWrites) return;
+        notes = s.exists ? Object.assign({}, s.data()) : {};
+        var a = document.activeElement;
+        if (!(a && a.matches && a.matches('[data-note]'))) renderTodos();
+      }, function () {});
+      db.doc('sessions/list').onSnapshot(function (s) {
+        sessionsDoc = s.exists ? s.data() : null; sessionsLoaded = true; renderSessions();
+      }, function () { sessionsLoaded = true; renderSessions(); });
+      db.collection('status').onSnapshot(function (snap) { takeStatus(snap); renderStatus(); },
+        function () { statusLoaded = true; renderStatus(); });
+    }, function () { dbState = 'none'; renderData(); });
+    window.claude.use('tts').then(function (t) {
+      tts = t; ttsReady = true;
+      if (t) t.onState(function (e) { ttsState = e.state; renderStatus(); });
+      renderStatus();
+    }, function () { ttsReady = true; renderStatus(); });
+  }
+
+  var kinds = {};
+  function readSaved() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      var arr = raw ? JSON.parse(raw) : null;
+      return Array.isArray(arr) && arr.every(function (a) { return a && a.id && TITLES[a.kind]; }) ? arr : null;
+    } catch (e) { return null; }
+  }
+  function persist() {
+    if (grid.getColumn() !== 12) return; // do not overwrite the 12-column layout with the phone layout
+    var items = grid.engine.nodes.map(function (n) {
+      return { id: n.id, kind: kinds[n.id], x: n.x, y: n.y, w: n.w, h: n.h };
+    });
+    try { localStorage.setItem(KEY, JSON.stringify(items)); statusEl.textContent = 'Anordnung in diesem Browser gespeichert · ' + items.length + ' Widgets'; }
+    catch (e) { statusEl.textContent = 'Speichern in diesem Browser nicht möglich. Die Anordnung gilt bis zum Neuladen.'; }
+  }
+  function labels() {
+    grid.engine.nodes.forEach(function (n) {
+      var el = n.el && n.el.querySelector('[data-pos]');
+      if (el) el.textContent = 'x' + n.x + ' y' + n.y + ' · ' + n.w + '×' + n.h;
+    });
+  }
+  function show(items) {
+    grid.removeAll();
+    kinds = {};
+    items.forEach(function (it) { kinds[it.id] = it.kind; });
+    grid.load(items.map(toWidget));
+    renderData();
+    labels();
+  }
+
+  var grid = GridStack.init({
+    column: 12, cellHeight: 84, margin: 6, float: false, animate: true,
+    handle: '.w-head',
+    columnOpts: { breakpoints: [{ w: 640, c: 1 }] }
+  }, gridEl);
+
+  var saved = readSaved();
+  show(saved || DEFAULTS);
+  // A saved layout from before the Jira tile gets it once; removing it later keeps it removed.
+  try {
+    if (saved && !localStorage.getItem('widget-raster-got-jira') && !saved.some(function (s) { return s.kind === 'jira'; })) {
+      kinds.jira = 'jira';
+      grid.addWidget(toWidget({ id: 'jira', kind: 'jira', w: 6, h: 5 }));
+      labels(); renderJira();
+    }
+    localStorage.setItem('widget-raster-got-jira', '1');
+  } catch (e) {}
+  statusEl.textContent = saved ? 'Gespeicherte Anordnung aus diesem Browser geladen' : 'Startanordnung · 12 Spalten, Zellenhöhe 84 px';
+
+  initCapabilities();
+
+  gridEl.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (el.matches('[data-flag]')) setFlag(el.getAttribute('data-flag'), el.value);
+    else if (el.matches('[data-note]')) setNote(el.getAttribute('data-note'), el.value);
+    else if (el.matches('[data-status-menu]')) { statusSel = el.value; statusNote = ''; renderStatus(); }
+    else if (el.matches('select[data-f]')) {
+      flt[el.getAttribute('data-f')] = el.value; saveFlt();
+      rerenderFor(el.getAttribute('data-f'));
+    }
+  });
+  gridEl.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-copy]');
+    if (!b) return;
+    var key = b.getAttribute('data-copy');
+    function done(ok) { b.textContent = ok ? 'kopiert' : 'markiert'; setTimeout(function () { b.textContent = 'kopieren'; }, 1500); }
+    function selectKey() {
+      var kc = b.previousElementSibling, r = document.createRange();
+      r.selectNodeContents(kc); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); done(false);
+    }
+    try { navigator.clipboard.writeText(key).then(function () { done(true); }, selectKey); } catch (e) { selectKey(); }
+  });
+  gridEl.addEventListener('input', function (ev) {
+    var el = ev.target;
+    if (!el.matches('input[data-f]')) return;
+    flt[el.getAttribute('data-f')] = el.value; saveFlt();
+    rerenderFor(el.getAttribute('data-f'));
+  });
+
+  gridEl.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-act]');
+    if (!b) return;
+    var act = b.getAttribute('data-act');
+    if (act === 'noop') return;
+    if (act === 'speak') speakStatus();
+    else if (act === 'reload') reloadStatus();
+    else if (tts) tts.stop().catch(function () {});
+  });
+
+  grid.on('change added removed', function () { labels(); persist(); });
+  grid.on('drag resize', function () { labels(); });
+
+  gridEl.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('.w-x');
+    if (!btn) return;
+    var item = btn.closest('.grid-stack-item');
+    var id = item.gridstackNode && item.gridstackNode.id;
+    grid.removeWidget(item);
+    delete kinds[id];
+    persist();
+  });
+
+  gridEl.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('.rng-b');
+    if (!btn) return;
+    range = Number(btn.getAttribute('data-range')) || 14;
+    btn.closest('.w-body').innerHTML = sparkHtml();
+  });
+  gridEl.addEventListener('pointermove', function (ev) {
+    var wrap = ev.target.closest('[data-spark]');
+    if (wrap) sparkHover(wrap, ev.clientX);
+  });
+  gridEl.addEventListener('pointerdown', function (ev) {
+    var wrap = ev.target.closest('[data-spark]');
+    if (wrap) sparkHover(wrap, ev.clientX);
+  });
+  gridEl.addEventListener('pointerout', function (ev) {
+    var wrap = ev.target.closest('[data-spark]');
+    if (wrap && !(ev.relatedTarget && wrap.contains(ev.relatedTarget))) sparkLeave(wrap);
+  });
+
+  document.getElementById('btn-add').addEventListener('click', function () {
+    var kind = document.getElementById('add-kind').value;
+    if (!TITLES[kind]) kind = 'note';
+    var id = kind + '-' + Date.now().toString(36);
+    kinds[id] = kind;
+    var w = toWidget({ id: id, kind: kind, w: SIZES[kind][0], h: SIZES[kind][1] });
+    delete w.x; delete w.y; // GridStack picks the first free place
+    grid.addWidget(w);
+    labels(); persist();
+  });
+
+  var lockBtn = document.getElementById('btn-lock');
+  lockBtn.addEventListener('click', function () {
+    var locked = lockBtn.getAttribute('aria-pressed') !== 'true';
+    grid.setStatic(locked);
+    lockBtn.setAttribute('aria-pressed', String(locked));
+    lockBtn.textContent = locked ? 'Raster entsperren' : 'Raster sperren';
+    statusEl.textContent = locked ? 'Raster gesperrt: Widgets lassen sich nicht verschieben' : 'Raster entsperrt';
+  });
+
+  document.getElementById('btn-reset').addEventListener('click', function () {
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    show(DEFAULTS);
+    statusEl.textContent = 'Startanordnung wiederhergestellt';
+  });
+})();
+</script>
