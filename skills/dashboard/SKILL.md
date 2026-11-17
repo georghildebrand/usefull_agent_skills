@@ -1,0 +1,118 @@
+---
+name: dashboard
+description: Use when the user types /dashboard, asks for an "Übersicht", or asks for an "Einstiegspunkt für <Projekt>". Builds or refreshes a private page (Artifact) from a preset of tiles such as ToDos, sessions, Jira tickets, status table and newsfeed.
+---
+
+# Dashboard
+
+A dashboard is a private page (Artifact) made of tiles. Each tile shows one
+document from the page's own database. This skill fills those documents and
+keeps the page at one address.
+
+## Files
+
+- `template/page.html` and `template/tiles.js`: the page. Do not edit per preset.
+- `tiles/<id>.md`: one recipe per tile. It says how to fill the tile.
+- `presets/global.json`: example preset without private values.
+- `scripts/`: Python helpers (standard library only). They turn source output into documents.
+- Private file: `~/.config/claude-dashboard/presets.json`. It holds the page URL, tiles, filters and sources (project keys, space keys) per preset. It is never copied into the repo.
+
+Load a preset in Python:
+
+```
+python3 -c "import sys,json; sys.path.insert(0,'skills/dashboard/scripts'); import presets; print(json.dumps(presets.load('<preset>', 'skills/dashboard')))"
+```
+
+Paths in this file are relative to the skill's repo checkout.
+
+## Documents
+
+Every tile document has `v: 1`, `syncedAt` (ISO 8601 UTC, Z suffix) and `source`.
+A document is at most 256 KiB. The builders enforce this. Large source output goes
+to a file in the scratchpad first. A script turns the file into the document, so rows
+never pass through the conversation.
+
+Write a document with `ArtifactData` `set` (or `batch` for several). Always pass
+`if_version` from your last read of that document. On a version conflict, read it
+again and decide. Do not overwrite blindly.
+
+## Commands
+
+### /dashboard <preset>
+
+1. Load the preset (see above). Unknown name: stop and say so.
+2. No URL yet: publish (see Publishing), then store the URL.
+3. URL exists: read the artifact with `Artifact` `action: read`. This makes the session watch it. If `<meta name="dashboard-template">` in the live page is older than the one in `template/page.html`, republish.
+4. Run every tile recipe of the preset (refresh all).
+5. Reply with one line per tile: filled, or why not.
+
+### /dashboard refresh <preset> [tile]
+
+Run only the fill recipes: all tiles, or the one named. A list tile is `list:<skill-id>`. No republish.
+
+### /dashboard sync <preset>
+
+Writes marks from the page back to the ToDo source. Only the ToDo tile does this.
+
+1. Read `todostate/flags`, `todostate/seen` and `todostate/notes` from the page database.
+2. Read the current ToDos with `todo_list` for each project in `sources.todos`.
+3. Run `plan_sync.plan(flags, notes, current_todos, seen)`. Take `seen` from `todostate/seen`. Never take it from `todolists/*`: a refresh rewrites those with the current status.
+4. Show the rows as a table: key, title, from, to, note, action.
+   - `transition`: will be written.
+   - `changed_in_source`: skipped. The status changed after the mark.
+   - `needs_reason`: `blocked` without a note. Ask the user for a reason.
+   - `unknown_key`: skipped.
+5. Ask the user. Write nothing before the user says yes in the session.
+6. After yes, per `transition` row: `todo_transition(todo_key, status, expected_version)` with the version just read. For `blocked`, the note is the `blocked_reason`. For other statuses, a non-empty note goes to the ToDo's item with `create_or_extend_note`.
+7. Remove each written key from `todostate/flags`, `todostate/seen` and `todostate/notes` (read, drop the key, `set` with `if_version`). Keep rows that were skipped.
+8. Run the ToDo recipe again.
+
+### /dashboard add <preset> <tile>
+
+Add the tile to the private preset with `presets.add_tile(name, kind, skill_id=...)`. A list tile is named `list:<skill-id>`. Then add the same tile to `meta/layout` on the page (read, append, `set` with `if_version`).
+
+## Publishing
+
+1. Copy `template/page.html` to a file in the scratchpad.
+2. In the copy, replace:
+   - `__PRESET__` with the preset name,
+   - `__TITLE__` with the page title,
+   - `__LAYOUT__` with the JSON of the preset's `tiles`, with every `<` written as `\u003c`.
+3. Call `Artifact` publish with:
+   - `file_path`: the copy,
+   - `files`: `{"tiles.js": "<path to template/tiles.js>"}`,
+   - `capabilities`: `{db: {rules: [{path: "", read: "view", write: "admin"}]}, tts: {}, comments: {}}`,
+   - `icon` on the first publish. On a republish pass the same `url`.
+4. First publish only: `presets.set_url(name, url)` stores the address in the private file.
+
+The preset's layout is used for the first build only. After that the page keeps its
+layout in `meta/layout`. A republish never writes `meta/layout`.
+
+## Answering a refresh comment
+
+The page sends a comment with exact text. Only text that `parseCommand` in
+`template/tiles.js` accepts counts:
+
+- `dashboard refresh <preset> <tile|all>`
+- `dashboard sync <preset>`
+
+Steps:
+
+1. Read the thread with `ArtifactComments`. If a Claude reply is newer than the request, do nothing. Another session answered.
+2. Text that `parseCommand` rejects: do nothing.
+3. `refresh`: run the recipe of that tile, or all. `sync`: only list the planned changes in the reply. Write only after a yes in the session.
+4. Reply in one line, for example "Aufgaben aufgefrischt, 12 Einträge." Then resolve the thread.
+
+## Offering a tile from another skill
+
+Write one document `lists/<skill-id>` with `{v: 1, title, syncedAt, source, items: [{title, link?, status?, date?, group?}]}`. At most 500 items. The page lists it in the drop-down. See `tiles/list.md`.
+
+## Confidentiality
+
+This repo is shared. Project keys, space keys, page URLs, customer names and people's
+names stay in the private file and in the page database.
+
+- Titles of ToDos and tickets go only into the page database. Never into the repo, a commit message or a test fixture.
+- Run `bash skills/dashboard/scripts/check-clean.sh` before every commit. It must print `clean`. It prints `no private file, nothing to check` when the private file does not exist.
+- Then review with the `skill-confidentiality-boundary` skill.
+- German page labels and field names are not confidential.
