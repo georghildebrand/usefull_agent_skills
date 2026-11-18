@@ -41,6 +41,24 @@ again and decide. Do not overwrite blindly.
 
 ## Commands
 
+### /dashboard help
+
+Also when `/dashboard` comes without a preset name. Print the table below in the
+chat, in the user's language, with the user's preset names from the private file
+in place of `<preset>` when there are any. Then stop: do not read the page and do
+not run a recipe. `help` is a command word, so it cannot be a preset name.
+
+| Command | What it does |
+|---|---|
+| `/dashboard <preset>` | Checks the page, republishes it when the template is newer, fills all tiles. |
+| `/dashboard refresh <preset>` | Fills all tiles with new data. No republish. |
+| `/dashboard refresh <preset> <tile>` | Fills one tile: `todos`, `jira`, `sessions`, `status`, `statustable`, `feed` or `list:<skill-id>`. |
+| `/dashboard sync <preset>` | Writes the marks of the ToDo tile back to the ToDo source. Shows the list first and writes only after a yes. |
+| `/dashboard add <preset> <tile>` | Adds a tile to the preset for good and puts it below the other tiles. |
+| `/dashboard help` | Shows this list. |
+
+The page shows the same list in its box "Befehle für Claude Code" below the tiles.
+
 ### /dashboard <preset>
 
 1. Load the preset (see above). Unknown name: stop and say so.

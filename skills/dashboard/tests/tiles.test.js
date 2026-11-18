@@ -233,7 +233,7 @@ test('page: placeholders, meta tags and content-only form', () => {
   const html = pageText();
   assert.match(html, /<title>__TITLE__<\/title>/);
   assert.match(html, /<meta name="dashboard-preset" content="__PRESET__">/);
-  assert.match(html, /<meta name="dashboard-template" content="1">/);
+  assert.match(html, /<meta name="dashboard-template" content="2">/);
   assert.match(html, /<meta name="claude:viewport-fit-sides" content="cover">/);
   assert.doesNotMatch(html, /<!doctype|<html|<head|<body/i);
   assert.ok(Buffer.byteLength(html) < 16 * 1024 * 1024);
@@ -248,6 +248,22 @@ test('page: scripts come only from pinned jsDelivr or tiles.js, tiles.js before 
     assert.match(s, /^https:\/\/cdn\.jsdelivr\.net\/npm\/[a-z0-9-]+@\d+\.\d+\.\d+\//, s);
   }
   assert.ok(html.indexOf('src="tiles.js"') < html.indexOf('<script>'), 'tiles.js loads before the inline script');
+});
+
+test('page: the help box lists every command of SKILL.md', () => {
+  const html = pageText();
+  const box = html.match(/<details class="help" id="help">([\s\S]*?)<\/details>/);
+  assert.ok(box, 'help box exists');
+  const text = box[1].replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  for (const c of ['/dashboard <preset>', '/dashboard refresh <preset>', '/dashboard refresh <preset> <widget>',
+    '/dashboard sync <preset>', '/dashboard add <preset> <widget>', '/dashboard help']) {
+    assert.ok(text.includes(c), 'help box lists ' + c);
+  }
+  const skill = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf8');
+  for (const c of ['/dashboard help', '/dashboard <preset>', '/dashboard refresh <preset> [tile]', '/dashboard sync <preset>', '/dashboard add <preset> <tile>']) {
+    assert.ok(skill.includes(c), 'SKILL.md lists ' + c);
+  }
+  assert.ok(!inlineScripts(html)[0].includes('__PRESET__'), 'publish replaces every __PRESET__, so the script must not compare with it');
 });
 
 test('page: theme tokens with both dark blocks and a body background', () => {
@@ -328,6 +344,7 @@ function runPage(html) {
   const layoutBlock = html.match(/<script type="application\/json" id="dashboard-layout">([\s\S]*?)<\/script>/);
   const todoList = el();
   const todos = el({ querySelector: (s) => (s === '[data-todo-list]' ? todoList : null) });
+  const presetSpans = [el({ textContent: '<preset>' }), el({ textContent: '<preset>' })];
   const document = {
     activeElement: null,
     getElementById(id) {
@@ -339,7 +356,7 @@ function runPage(html) {
       const meta = m && html.match(new RegExp('<meta name="' + m[1] + '" content="([^"]*)">'));
       return meta ? { getAttribute: () => meta[1] } : null;
     },
-    querySelectorAll(s) { return s === '[data-todos]' ? [todos] : []; },
+    querySelectorAll(s) { return s === '[data-todos]' ? [todos] : s === '[data-preset]' ? presetSpans : []; },
     addEventListener() {},
   };
   const grid = { loads: [], engine: { nodes: [] }, removeAll() { this.engine.nodes = []; },
@@ -373,8 +390,15 @@ function runPage(html) {
     const target = { value, matches: (s) => s === sel, getAttribute: (a) => attrs[a] };
     byId.grid.listeners.change.forEach((f) => f({ target }));
   }
-  return { grid, writes, doc, coll, change, todoList, byId, flush: () => new Promise((r) => setImmediate(r)) };
+  return { grid, writes, doc, coll, change, todoList, byId, presetSpans, flush: () => new Promise((r) => setImmediate(r)) };
 }
+
+test('page: the help box shows the preset name of this page', () => {
+  const p = runPage(pageText().replace(/__PRESET__/g, 'demo'));
+  assert.deepEqual(p.presetSpans.map((s) => s.textContent), ['demo', 'demo']);
+  const q = runPage(pageText().replace(/__PRESET__/g, ''));
+  assert.deepEqual(q.presetSpans.map((s) => s.textContent), ['<preset>', '<preset>'], 'no name: placeholder stays');
+});
 
 test('page: start layout comes from the preset block; reset returns to it', () => {
   const tiles = [{ kind: 'jira', x: 0, y: 0, w: 6, h: 4 }, { kind: 'list', id: 'list:demo', x: 6, y: 0, w: 6, h: 4 }];
