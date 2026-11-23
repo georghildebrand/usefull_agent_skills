@@ -1,4 +1,3 @@
-
 # Multi-Agent Reframing
 
 Use this protocol when multiple agents or parallel reasoning branches are available and the problem is important enough to justify representation search.
@@ -28,7 +27,7 @@ Do not solve or reframe directly. Challenge the primitives shared by the other a
 Attempt to falsify each candidate frame. Look for lost invariants, hidden assumptions, circular explanations, untestable claims, and complexity disguised as sophistication.
 
 ### Collector (optional, required for debate rounds)
-Persist arguments into the knowledge graph after each round: atomic notes, typed edges, deduplicated against the existing graph. Exactly one collector writes at a time. Returns the frozen argument map for the next round. See [relknow-argumentation.md](relknow-argumentation.md).
+Persist arguments into the knowledge graph after each round: atomic notes, typed edges, deduplicated against the existing graph. Exactly one collector writes at a time. Returns the frozen argument map for the next round. If the relknow skill is installed, see its `references/relknow-argumentation.md` for the write protocol.
 
 ### Synthesis/Judge
 Compare surviving frames using the same criteria: explanatory power, assumptions, anomaly coverage, testability, decision relevance, and complexity. Do not use majority vote. Correlated agreement among similar agents is weak evidence. When the argument graph carries operation chains with cost vectors, rank complete argumentation lines with `evaluate_derivations` (linear = MinSum, tchebyscheff = robust) under at least two profiles and report profile disagreement instead of averaging it away.
