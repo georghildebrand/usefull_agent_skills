@@ -6,8 +6,9 @@ description: >
   diagrams-as-code repository. Covers which level an element belongs to, the
   classification rules for the hard cases (managed cloud services, message
   buses, microservices, SPAs, libraries), a shared conventions include, status
-  tags for architecture that is not built yet, the edit-compile-commit loop,
-  and a review checklist. Not for UML class diagrams, sequence-only diagrams,
+  tags for elements and relationships that are not built yet or carry an open
+  risk, vendor category colours and icons, layout for a readable container
+  diagram, the edit-compile-commit loop, and a review checklist. Not for UML class diagrams, sequence-only diagrams,
   or one-off sketches.
 ---
 
@@ -172,6 +173,9 @@ Work through these in order; they resolve almost every real argument.
 CDNs) → container.** You do not run the service, but you own the buckets and
 the schemas, and they are an integral part of your architecture. Do not push
 them out to an external system just because they are hosted elsewhere.
+Colour them by vendor category (see "Vendor category colours and icons"), so
+the reader sees which boxes are managed services and which are software you
+deploy yourself.
 
 **Microservices and serverless functions → depends on ownership.** Owned by
 another team and outside your control → external software system, drawn closed.
@@ -324,6 +328,102 @@ Two rules that prevent the most damaging failure of an architecture repo:
   README. A diagram is read as a commitment.
 - **Put a status note on any diagram whose subject is not fully built**, with a
   date and a pointer to the ticket or decision record that will resolve it.
+- **An element that exists in one environment but is not active there gets
+  `todo`, and is drawn as its own element.** Example: a web application
+  firewall that is attached in production but not yet in development. Do not
+  merge it into the box of the built component next to it, because the merged
+  box hides the gap. Say in the description which environment lacks it.
+
+**Relationships have status too, and the colour has two meanings. Keep them
+apart.** Use the same amber as the element tag `todo` for both, and tell them
+apart by line style:
+
+| Meaning | Line | Label |
+|---|---|---|
+| The flow does not exist yet (planned, or not used in this version) | dashed amber | what the flow will do |
+| The flow is live, but it carries an open risk | solid amber | what it does, plus the risk ID, for example `(R3)` |
+
+Define both as relationship tags in the conventions file, with `$legendText`,
+so that `SHOW_LEGEND()` explains them without extra work:
+
+```plantuml
+AddRelTag("todo",      $textColor="#9C7A1E", $lineColor="#D6B656", $lineStyle=DashedLine(), $legendText="planned flow (not built)")
+AddRelTag("open_risk", $textColor="#9C7A1E", $lineColor="#D6B656", $lineStyle=SolidLine(),  $legendText="live flow with an open risk (risk ID in the label)")
+```
+
+Use them as `Rel(a, b, "Label", "HTTPS", $tags="open_risk")`. Without the
+line-style rule, a reader cannot tell "not built" from "built but risky", and
+those two need very different reactions.
+
+### Vendor category colours and icons
+
+Cloud vendors group their services in categories (networking, security,
+storage, and so on), and each category has a colour and an icon. Readers know
+them, so they identify boxes faster. Example: AWS, with the PlantUML stdlib copy
+of aws-icons-for-plantuml (`awslib`).
+
+**Rule: software you deploy yourself keeps the default C4 container colour.
+Managed cloud services whose configuration you own get the vendor category
+colour.** That makes the line between "we run this" and "we configure this"
+visible without a legend lookup.
+
+How to set it up:
+
+- Use the stdlib copy: `!include <awslib/NetworkingContentDelivery/Route53>`.
+  It works offline and is pinned to the PlantUML release. Do not include icons
+  from a remote URL.
+- Put the icon includes in a **separate include file** that only diagrams with
+  cloud icons include (for example `includes/aws-icons.puml`). Adding an icon
+  then does not touch any other diagram or its rendering.
+- Define one element tag per category in the conventions file, each with
+  `$legendText` (for example `aws_net`, `aws_sec`, `aws_stor`, `aws_ai`), with
+  the vendor colour as background.
+- On the element, pass the icon and the tag together:
+  `Container(alb, "Load balancer", "ALB, ACM certificate", "...",
+  $sprite="ElasticLoadBalancingApplicationLoadBalancer", $tags="aws_net")`.
+
+Gotchas:
+
+- The stdlib `awslib` can lag behind the vendor's GitHub repository. Example:
+  `awslib` 14.0.0, shipped with PlantUML 1.2026.9, has no Amazon Bedrock icon.
+  Use the category tag alone for such a box.
+- Folder names change between releases. `awslib` 14 uses `MachineLearning/`
+  where newer releases use `ArtificialIntelligence/`. Look in the stdlib of
+  your PlantUML version, not in the web documentation.
+- **Test every new include by rendering a three-line test file first**
+  (`@startuml`, the include, one element that uses the sprite, `@enduml`). A
+  wrong path or sprite name fails the whole diagram with a message that does
+  not name the cause.
+
+### Layout for a readable container diagram
+
+With 15-18 elements, the automatic layout of Graphviz (the layout engine behind
+PlantUML) needs help. Decide the columns by meaning first, then steer the tool:
+
+- the request path in the middle column, top to bottom;
+- identity (sign-in, identity providers) on one side;
+- data stores and delivery (images, pipelines) on the other side;
+- the external control plane at the far side;
+- backends at the bottom.
+
+Tools that work:
+
+- **A nested `Boundary` inside the system boundary** keeps related elements
+  together as one column, for example all data stores. Graphviz keeps a
+  cluster together.
+- **`Lay_D`, `Lay_L`, `Lay_R` hints, plus `Rel_D`, `Rel_L`, `Rel_R`, `Rel_U`
+  directions that agree with them.** If a hint says "A left of B" and the
+  relationship says `Rel_D(A, B)`, the tool has two conflicting orders and
+  the result is hard to predict.
+- **Merge two parallel relationships that use the same connection into one
+  arrow with both labels.** Parallel arrows between the same pair of elements
+  put their labels on top of each other. Merge only when the connection is the
+  same; two different protocols stay two lines.
+- Elements outside the system boundary are placed around the cluster by
+  Graphviz. Hints only steer them; do not expect exact positions.
+- **Render to PNG after each layout change and look at it.** Render the final
+  SVG only when the picture is right. A change in one hint can move several
+  elements.
 
 ### Titles, labels, legend
 
@@ -335,7 +435,7 @@ Two rules that prevent the most damaging failure of an architecture repo:
 !define LAYOUT_WITH_LEGEND
 top to bottom direction
 
-title Container diagram for <System Name>
+title C4 Level 2 · Container diagram for <System Name>
 
 Person(user, "Analyst", "Runs forecasts from the web UI")
 System_Ext(idp, "Identity Provider", "The customer's own tenant IdP")
@@ -354,8 +454,17 @@ SHOW_LEGEND()
 ```
 
 **Diagrams**
-- A `title` stating the **diagram type and scope** — "Container diagram for X",
-  not "Architecture".
+- A `title` stating the **level, diagram type and scope** — "C4 Level 2 ·
+  Container diagram for X", not "Architecture". The level is in the title, not
+  only in the file name, because an SVG embedded in a wiki is shown without
+  its file name.
+- **The legend or a comment states what an arrow means.** The arrow points from
+  the side that opens the connection (who initiates). That can differ from
+  where the data goes. Example: data planes pull their configuration from a
+  vendor-hosted control plane that cannot connect in; the arrow points from
+  the data plane to the control plane, although the configuration flows the
+  other way. If the arrow labels carry data-flow IDs from an ADR or a flow
+  table, say that the table gives the data direction.
 - A key/legend explaining every shape, colour, border style, line type and
   arrow head used. If you follow a standard notation, naming that notation in
   the legend is enough.
@@ -368,7 +477,9 @@ SHOW_LEGEND()
 - A short description on every element, giving an at-a-glance view of its
   responsibilities. Do not remove it "for simplicity"; make a separate
   cut-down diagram if an exec deck needs one.
-- A technology explicitly specified on **every container and component**.
+- A technology explicitly specified on **every container and component**. The
+  field names the technology: "S3 bucket, SSE-KMS", "ALB, ACM certificate".
+  Never the cloud category ("AWS storage"); the colour already says that.
 - Specific names. "Business Logic" and "Integration Layer" carry no
   information — name what it actually does.
 
@@ -379,7 +490,14 @@ SHOW_LEGEND()
   stating intent. Be specific: "Sends customer update events to" beats
   "customer update events", and both beat "Uses".
 - Lines between containers represent inter-process communication — label the
-  technology or protocol.
+  technology or protocol. Every arrow has a verb and a protocol.
+- No single-word labels. Name the concrete action ("Validates the caller's
+  token", not "Uses" and not "Works with").
+- When a flow carries a sensitive payload (keys, tokens, personal data), name
+  it in the label: "Sends the signed-in user's access token".
+- **Draw the sign-in flow** (client to identity provider), even when it has no
+  data-flow ID. The first question of a security reader is usually "where does
+  the token come from?".
 - Whether lines mean dependency or data flow is your choice, but be consistent
   and make the description match the arrow direction.
 - No isolated elements. A box with no relationship is a sign the diagram is
@@ -436,6 +554,14 @@ quality attribute is met.
 
 ## Workflow
 
+**Agree the content before the geometry.** A hand-drawn review draft (for
+example inline SVG on a web page) is a fast way to agree on elements, flows and
+labels with the people who know the system. Do not polish its geometry. Have an
+independent reviewer check the content against the Review Checklist below
+before you write PlantUML. Then move to PlantUML: the automatic layout removes
+the hand-placed overlap problems, and the draft's geometry is not worth
+carrying over.
+
 ```bash
 # 1. edit the .puml in the directory matching its level
 # 2. render locally
@@ -468,7 +594,8 @@ understood without someone narrating it?** If it raises more questions than it
 answers, it is not finished.
 
 **Diagram**
-- [ ] Title states the diagram type and the scope.
+- [ ] Title states the level, the diagram type and the scope ("C4 Level 2 ·
+      Container diagram for X").
 - [ ] File name follows `C4_Level<N>_<View>[_<Subject>]`, also for dynamic,
       sequence and deployment views. `<N>` is the level of the scope the
       diagram zooms into, not of its most detailed element. Level and view
@@ -477,6 +604,10 @@ answers, it is not finished.
       only as closed boxes. The only exception is an extension that the
       conventions file documents.
 - [ ] Has a legend, and every colour/shape/line style/arrow head used appears in it.
+- [ ] The legend or a comment says that an arrow points from the side that
+      opens the connection, and where the data direction is documented.
+- [ ] Layout follows columns by meaning, and the PNG was looked at before the
+      final SVG was rendered.
 - [ ] Sits in the directory that matches its level and audience.
 - [ ] 5–15 elements; never past ~20.
 - [ ] One level of abstraction only — no code elements on a container diagram,
@@ -493,12 +624,22 @@ answers, it is not finished.
 - [ ] External systems are closed boxes — no internals shown.
 - [ ] Every acronym is either universally known or expanded.
 - [ ] Anything not yet built carries a status tag, not the default style.
+- [ ] An element that exists in one environment only (not active in another)
+      is its own element with `todo`, not merged into a built box.
+- [ ] The technology field names a technology, not a cloud category.
+- [ ] Managed cloud services you configure have the vendor category colour
+      and a legend entry; software you deploy yourself has the default colour.
 - [ ] No isolated element without a relationship.
 
 **Relationships**
 - [ ] Every line is unidirectional and labelled.
 - [ ] The label states intent and reads correctly in the arrow's direction.
-- [ ] No single-word labels like "Uses".
+- [ ] No single-word labels like "Uses". Every label has a verb; every
+      inter-container label has a protocol.
+- [ ] Flows that carry keys, tokens or personal data say so in the label.
+- [ ] The sign-in flow (client to identity provider) is drawn.
+- [ ] Dashed amber means "does not exist yet"; solid amber means "live, open
+      risk" with the risk ID in the label. Both are in the legend.
 - [ ] Inter-container lines state the protocol.
 
 **Consistency**
@@ -528,6 +669,17 @@ answers, it is not finished.
 | One diagram per quality attribute, each incomplete | Fragmentation; nothing is the source of truth | Merge them, or delete the ones not tied to a real requirement |
 | No deployment view anywhere | Where it runs and how it ships is invisible | Add a deployment diagram |
 | Diagram edited, SVG not re-rendered | Everyone reads the stale rendering | Render before commit; treat drift as a broken build |
+| One amber line style for "not built" and "live but risky" | Reader cannot tell a gap from a risk | Dashed amber = not built; solid amber = live with open risk and the risk ID in the label |
+| Element missing in one environment merged into a built box | The gap is hidden | Own element with `todo` |
+| Cloud category as technology ("AWS storage") | Says nothing the colour does not; hides the real technology | Name the technology: "S3 bucket, SSE-KMS" |
+| Vendor colour on software you deploy yourself | Hides the line between "we run it" and "we configure it" | Default container colour for your own software |
+| Icons from a remote URL, or icon includes inside every diagram | Needs network on every render; one icon change touches all diagrams | Stdlib `awslib` includes in one separate include file |
+| Title without the level | An embedded SVG has no file name; the reader cannot tell the zoom level | "C4 Level 2 · Container diagram for X" |
+| Two parallel arrows between the same pair | Labels print on top of each other | One arrow with both labels |
+| Layout hints that disagree with the `Rel_*` directions | Unpredictable result | Make hints and directions agree |
+| Single-word or verb-less labels ("Uses", "Works with") | Reader must guess the action | Concrete verb plus protocol |
+| Token or key flow without a label naming it; no sign-in flow | The security reader's first question stays open | Name the payload; draw client to identity provider |
+| Polishing the geometry of a hand-drawn review draft | Overlap fixes are lost work once the layout is automatic | Agree content in the draft, then move to PlantUML |
 | Open decision drawn as the target state | Readers implement it | Tag both options `<<todo>>`, or draw neither and say so |
 
 ## Two Misconceptions Worth Correcting Out Loud
