@@ -1,0 +1,3 @@
+interface:
+  display_name: "MCP Security Review"
+  short_description: "Review MCP servers and configs against the CoSAI threat categories"
