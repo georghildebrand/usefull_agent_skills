@@ -652,8 +652,8 @@ the only reliable path.
 
 ## REST fallback through the CLI — attachments, full comment body, any endpoint
 
-The typed commands do not expose attachment metadata and cut comment bodies to
-a 50-char preview. For these, and for any other field the typed commands drop,
+The typed comment commands cut comment bodies to a 50-char preview. For these,
+and for any other field the typed commands drop,
 call the REST endpoint **through the CLI**: `atlassian-cli jira api <path>` and
 `atlassian-cli confluence api <path>` use the profile's own credentials. No
 token variable, no `source` of an env file, no `curl`. Paths are relative to the
@@ -673,11 +673,56 @@ for a in json.load(sys.stdin)['fields'].get('attachment', []):
 "
 ```
 
-### Download an attachment
+### Download an attachment (images, files) — never through `api`
 
-`/rest/api/3/attachment/content/<ATTACHMENT_ID>` answers with a 302 redirect
-to a CDN URL. Downloading the binary through `jira api` is not verified yet;
-check with `--debug` before relying on it.
+Atlassian does not serve attachment bytes directly. The download endpoint
+answers with a redirect to a CDN URL: HTTP 302 on Confluence, HTTP 303 on
+Jira. `jira api` and `confluence api` do **not** follow redirects (verified
+with 0.12.0 on both products):
+
+```
+$ atlassian-cli --profile <p> confluence api \
+    "/wiki/rest/api/content/<PAGE_ID>/child/attachment/<ATT_ID>/download" > out.png
+Error: HTTP 302 GET /wiki/rest/api/content/<PAGE_ID>/child/attachment/<ATT_ID>/download
+# exit 1, out.png is 0 bytes
+```
+
+The browser path `/wiki/download/attachments/<PAGE_ID>/<FILENAME>` fails as
+well: it rejects API-token auth and returns an HTML `401 Unauthorized` page
+on stdout. Check the file type before trusting what you wrote to disk.
+
+**Confluence — use the typed command.** It fetches the metadata, follows the
+redirect and writes the bytes:
+
+```bash
+# 1. Attachment IDs (att...) of a page
+atlassian-cli --profile <p> confluence attachment list <PAGE_ID>
+# 2. One file per call; --output is required
+atlassian-cli --profile <p> confluence attachment download <ATT_ID> --output <FILE>
+# 3. Verify: size matches the list, type is right
+file <FILE>
+```
+
+Limit: `attachment download` has no `--version` flag, so it always fetches the
+newest version of an attachment. Older versions are listed by
+`confluence api "/wiki/api/v2/attachments/<ATT_ID>/versions"`, but the CLI
+cannot download them.
+
+**Jira — use the typed command too.** `jira api
+"/rest/api/3/attachment/content/<ID>"` fails with `HTTP 303`, exit 1, 0 bytes.
+`jira attachment` works and can fetch all files of an issue at once:
+
+```bash
+atlassian-cli --profile <p> jira attachment list <KEY>
+atlassian-cli --profile <p> jira attachment download <ID> --output <FILE>
+atlassian-cli --profile <p> jira attachment download --issue <KEY> --dir ./attachments
+atlassian-cli --profile <p> jira attachment download <ID> --output - | file -   # stdout; from --help, not tested
+```
+
+The Confluence command has no bulk mode per page; loop over the IDs from
+`attachment list`. It also has no stdout mode: `confluence attachment download
+<ATT_ID> --output -` writes a file literally named `-` into the current folder.
+Always pass a real file path there.
 
 ### Read full comment body
 
