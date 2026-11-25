@@ -245,7 +245,7 @@ def known_topics(con, limit=MAX_KNOWN_TOPICS):
 
     Each batch is a separate call and cannot see what earlier batches chose.
     Without this list the same subject gets a new name in every batch, so the
-    report ends up with "systemgraph-development" and "system-graph-testing"
+    report ends up with "billing-service-work" and "billing-svc-tests"
     as separate rows and no group large enough to be informative.
     """
     return [
