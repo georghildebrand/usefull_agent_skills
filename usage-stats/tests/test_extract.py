@@ -599,5 +599,88 @@ class StateDirGuardTest(unittest.TestCase):
         self.assertIn("opened", result.stdout)
 
 
+class AutomaticAndTagTest(unittest.TestCase):
+    """Local rules settle tool messages, and a hashtag beats a model guess."""
+
+    @classmethod
+    def setUpClass(cls):
+        import classify
+
+        cls.classify = classify
+        cls.con = connect()
+        cls.con.execute(
+            "INSERT INTO sessions (session_id, transcript_path, transcript_mtime,"
+            " n_user_prompts) VALUES ('rule-s1', '/x', 0, 9)"
+        )
+        rows = [
+            (1, "<task-notification> job finished", "steer", ""),
+            (2, "<ide_selection>lines 1 to 3</ide_selection>", None, ""),
+            (3, "<ide_opened_file>a.py</ide_opened_file> fix the test", "task", ""),
+            (4, "! make test", "steer", ""),
+            (5, "[Request interrupted by user]", "correction", ""),
+            (6, "That is wrong, redo it #ProblematicAnswer", "task", "ProblematicAnswer"),
+            (7, "note #SomethingElse for later", "task", "SomethingElse"),
+            (8, "<task-notification> done #DidNotFollow", "auto", "DidNotFollow"),
+            (9, "hello", None, ""),
+        ]
+        for turn, text, kind, tags in rows:
+            cls.con.execute(
+                "INSERT INTO prompts (session_id, turn, text_head, kind, tags)"
+                " VALUES ('rule-s1', ?, ?, ?, ?)",
+                (turn, text, kind, tags),
+            )
+        cls.con.commit()
+        cls.fixed = classify.mark_automatic(cls.con)
+        cls.flagged = classify.apply_error_tags(
+            cls.con, {"ProblematicAnswer": "correction", "DidNotFollow": "correction"}
+        )
+
+    def kind(self, turn):
+        return self.con.execute(
+            "SELECT kind FROM prompts WHERE session_id='rule-s1' AND turn=?", (turn,)
+        ).fetchone()["kind"]
+
+    def test_tool_messages_and_bang_commands_become_auto(self):
+        self.assertEqual([self.kind(t) for t in (1, 2, 4, 5)], ["auto"] * 4)
+
+    def test_an_ide_block_followed_by_text_stays_a_real_prompt(self):
+        self.assertEqual(self.kind(3), "task")
+
+    def test_an_unmatched_prompt_is_left_for_the_model(self):
+        self.assertIsNone(self.kind(9))
+
+    def test_a_configured_hashtag_forces_the_kind(self):
+        self.assertEqual(self.kind(6), "correction")
+
+    def test_an_unmapped_hashtag_changes_nothing(self):
+        self.assertEqual(self.kind(7), "task")
+
+    def test_a_hashtag_inside_an_automatic_prompt_is_not_the_users_flag(self):
+        self.assertEqual(self.kind(8), "auto")
+
+    def test_counts(self):
+        self.assertEqual((self.fixed, self.flagged), (4, 1))
+
+    def test_find_tags_needs_two_capitalised_words(self):
+        self.assertEqual(
+            common.find_tags("# Title\n#Title and #DidNotFollow, #ProblematicAnswer"),
+            "DidNotFollow,ProblematicAnswer",
+        )
+        self.assertEqual(common.find_tags("see issue #123 and &#Entity"), "")
+
+    def test_report_lists_tags_and_marks_unmapped_ones(self):
+        import report
+
+        prompts = self.con.execute(
+            "SELECT * FROM prompts WHERE session_id='rule-s1'"
+        ).fetchall()
+        text = "\n".join(
+            report.tag_lines(prompts, {"ProblematicAnswer": "correction"})
+        )
+        self.assertIn("#ProblematicAnswer 1", text)
+        self.assertIn("#SomethingElse 1 (not mapped)", text)
+        self.assertNotIn("DidNotFollow", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

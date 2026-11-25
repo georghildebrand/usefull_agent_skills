@@ -187,6 +187,22 @@ def hard_lines(sessions, prompts):
     return out
 
 
+def tag_lines(prompts, error_tags):
+    """Hashtags the user wrote to flag a problem, counted per tag; [] when none."""
+    counts = {}
+    for p in prompts:
+        if p["kind"] == "auto":
+            continue
+        for tag in (p["tags"] or "").split(","):
+            if tag:
+                counts[tag] = counts.get(tag, 0) + 1
+    if not counts:
+        return []
+    names = ["#%s %d%s" % (t, n, "" if t in error_tags else " (not mapped)")
+             for t, n in sorted(counts.items(), key=lambda kv: -kv[1])]
+    return ["", "FLAGGED BY YOU (hashtags)"] + wrap_names("  ", names)
+
+
 def tool_lines(con, sessions, noise):
     """Most used tools, skills, MCP servers, subagents and programs of a week."""
     out = ["TOOLS USED (calls)"]
@@ -421,6 +437,7 @@ def render_week(con, iso_week, threshold, use_categories=False, hidden=()):
         )
         out.append("  (%d labelled prompts)" % n)
     cfg = load_config()
+    out.extend(tag_lines(prompts, cfg.get("error_tags") or {}))
     out.append("")
     out.extend(hard_lines(sessions, prompts))
     out.append("")

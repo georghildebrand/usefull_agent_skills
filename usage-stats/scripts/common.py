@@ -9,6 +9,7 @@ repository is public. Enforcing one base directory is the property; the
 """
 import json
 import os
+import re
 import sqlite3
 
 STATE_DIR = os.path.expanduser(
@@ -43,6 +44,20 @@ PROMPT_KINDS = (
 # Category for a topic that fits none of the configured ones.
 FALLBACK_CATEGORY = "other"
 
+# A hashtag the user writes into a prompt to flag a problem, for example
+# #ProblematicAnswer. Two or more capitalised words glued together, so a
+# markdown heading ("# Title") or a one-word tag ("#Title") never matches.
+TAG_RE = re.compile(r"(?<![\w&#])#([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b")
+
+
+def find_tags(text):
+    """Comma-separated hashtags of a prompt, without the #; "" when there are none."""
+    seen = []
+    for tag in TAG_RE.findall(text or ""):
+        if tag not in seen:
+            seen.append(tag)
+    return ",".join(seen)
+
 DEFAULT_CONFIG = {
     "model": "claude-haiku-4-5-20251001",
     "batch_size": 10,
@@ -61,6 +76,9 @@ DEFAULT_CONFIG = {
     "categories": {},
     # Categories left out of the report, for example calls made by tools.
     "hidden_categories": [],
+    # Hashtags the user writes to flag a problem, mapped to the prompt kind they
+    # force. Any other hashtag is stored and counted, but does not change a kind.
+    "error_tags": {"ProblematicAnswer": "correction", "DidNotFollow": "correction"},
     # An installed skill, subagent or MCP server that no session used for this
     # many days is listed as unused.
     "unused_after_days": 28,
@@ -160,6 +178,7 @@ CREATE TABLE IF NOT EXISTS prompts (
   chars INTEGER,
   text_head TEXT,
   kind TEXT,
+  tags TEXT,
   PRIMARY KEY (session_id, turn)
 );
 CREATE INDEX IF NOT EXISTS idx_prompts_kind ON prompts(kind);
@@ -276,4 +295,8 @@ def migrate(con):
     for col in ADDED_SESSION_COLUMNS:
         if col not in have:
             con.execute("ALTER TABLE sessions ADD COLUMN %s INTEGER" % col)
+    prompt_cols = {r["name"] for r in con.execute("PRAGMA table_info(prompts)")}
+    # An empty set means the table does not exist yet; the schema creates it.
+    if prompt_cols and "tags" not in prompt_cols:
+        con.execute("ALTER TABLE prompts ADD COLUMN tags TEXT")
     con.commit()

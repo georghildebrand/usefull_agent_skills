@@ -150,6 +150,28 @@ Programs that every session uses (`ls`, `grep`, `python3` and so on) are left
 out of the program list by `cli_noise` in `config.json`. Skills are matched by
 folder name, so a skill whose own name differs from its folder shows as unused.
 
+## Rules that need no model
+
+`classify.py` first applies exact rules, in every mode, before it calls a model:
+
+- A prompt that starts with a task notification, a system reminder, command
+  output, a `!` shell command, an interruption marker or a lone IDE block gets
+  the kind `auto`. The rule overrides a label the model gave earlier, and these
+  prompts are never sent to the model.
+- A prompt that holds a hashtag listed in `error_tags` gets the mapped kind, even
+  if the model chose another. A hashtag inside an automatic prompt is ignored.
+
+```json
+{ "error_tags": { "ProblematicAnswer": "correction", "DidNotFollow": "correction" } }
+```
+
+Write such a tag into your own prompt when an answer is wrong, for example
+`#DidNotFollow`. `extract.py` reads tags from the whole prompt text, not only
+from the stored head, and the report counts them under `FLAGGED BY YOU`. A tag
+that is not listed in `error_tags` is counted and marked "not mapped" but changes
+no label. A prompt that only talks about a tag also carries it, so a rare
+false flag is possible.
+
 ## Closing the gaps
 
 The first pass sends at most 40 prompts per session to the model, and the model

@@ -25,6 +25,7 @@ from common import (  # noqa: E402
     PROMPT_HEAD_CHARS,
     TRANSCRIPT_ROOT,
     connect,
+    find_tags,
     load_config,
 )
 
@@ -308,6 +309,9 @@ def extract_file(path, patterns=None):
                         "ts": rec.get("timestamp"),
                         "chars": len(text),
                         "text_head": text[:PROMPT_HEAD_CHARS],
+                        # Read from the whole text: a tag often sits at the end
+                        # of a long prompt, past the stored head.
+                        "tags": find_tags(text),
                     }
                 )
 
@@ -410,10 +414,18 @@ def store(con, sessions):
         )
         con.execute("DELETE FROM prompts WHERE session_id = ?", (sid,))
         con.executemany(
-            "INSERT INTO prompts (session_id,turn,ts,chars,text_head,kind)"
-            " VALUES (?,?,?,?,?,?)",
+            "INSERT INTO prompts (session_id,turn,ts,chars,text_head,kind,tags)"
+            " VALUES (?,?,?,?,?,?,?)",
             [
-                (sid, p["turn"], p["ts"], p["chars"], p["text_head"], old.get(p["turn"]))
+                (
+                    sid,
+                    p["turn"],
+                    p["ts"],
+                    p["chars"],
+                    p["text_head"],
+                    old.get(p["turn"]),
+                    p["tags"],
+                )
                 for p in st["prompts"]
             ],
         )

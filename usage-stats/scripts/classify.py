@@ -60,9 +60,9 @@ KIND_DEFINITIONS = """  task            a new request for work
   clarify_answer  answers a question the assistant asked
   info_request    a question only, no change wanted
   meta            about the assistant, its tools, or permissions
-  auto            not typed by the user: an interruption marker, a compaction
-                  summary, a notification from the IDE, a tool or the system,
-                  or the output of a command
+  auto            not a message to the assistant: an interruption marker, a
+                  compaction summary, a notification from the IDE, a tool or
+                  the system, a command typed after "!", or command output
 
 Judge "correction" by whether the prompt rejects or redirects the previous
 answer, not by whether it contains particular words.
@@ -100,6 +100,72 @@ Return ONLY a JSON array, one object per segment, no prose and no code fence:
 
 
 EMPTY_TOPIC = "(no prompts)"
+
+# A prompt that starts with one of these is never a message to the assistant.
+# The rule is exact, so it needs no model call and it overrides a model label.
+AUTO_PREFIXES = (
+    "<task-notification>",
+    "<system-reminder>",
+    "<local-command-stdout>",
+    "<local-command-caveat>",
+    "<bash-input>",
+    "<bash-stdout>",
+    "<bash-stderr>",
+    "<artifact-content-authored-by-others",
+    "<artifact-view-context",
+    "[Request interrupted by user",
+)
+# Only IDE blocks and nothing else. A block followed by text is a real prompt.
+IDE_ONLY_RE = re.compile(r"^(?:<ide_[a-z_]+>.*?</ide_[a-z_]+>\s*)+$", re.S)
+
+
+def is_automatic(text):
+    """True when the stored head of a prompt cannot be a message to the assistant."""
+    t = (text or "").lstrip()
+    if t.startswith(AUTO_PREFIXES):
+        return True
+    # "! cmd" runs a shell command from the prompt box; it steers nothing.
+    if t.startswith("! ") and t[2:].strip():
+        return True
+    return bool(IDE_ONLY_RE.match(t))
+
+
+def mark_automatic(con):
+    """Set kind 'auto' on every prompt the rules above recognise, a model label or not."""
+    rows = con.execute(
+        "SELECT session_id, turn, text_head FROM prompts"
+        " WHERE kind IS NULL OR kind <> 'auto'"
+    ).fetchall()
+    todo = [(r["session_id"], r["turn"]) for r in rows if is_automatic(r["text_head"])]
+    con.executemany(
+        "UPDATE prompts SET kind = 'auto' WHERE session_id = ? AND turn = ?", todo
+    )
+    con.commit()
+    return len(todo)
+
+
+def apply_error_tags(con, error_tags):
+    """Force the kind of a prompt the user flagged with a configured hashtag.
+
+    The user's own tag beats a model guess. A prompt that is automatic keeps
+    'auto': a hashtag inside a tool message is not the user's flag.
+    """
+    changed = 0
+    rows = con.execute(
+        "SELECT session_id, turn, tags, kind FROM prompts"
+        " WHERE tags IS NOT NULL AND tags <> '' AND (kind IS NULL OR kind <> 'auto')"
+    ).fetchall()
+    for r in rows:
+        kinds = [error_tags[t] for t in r["tags"].split(",") if t in error_tags]
+        kinds = [k for k in kinds if k in PROMPT_KINDS]
+        if kinds and r["kind"] != kinds[0]:
+            con.execute(
+                "UPDATE prompts SET kind = ? WHERE session_id = ? AND turn = ?",
+                (kinds[0], r["session_id"], r["turn"]),
+            )
+            changed += 1
+    con.commit()
+    return changed
 
 
 def mark_empty_sessions(con):
@@ -584,6 +650,14 @@ def main():
     batch_size = args.batch_size or cfg["batch_size"]
 
     con = connect()
+    # Local rules first: they cost nothing, and prompts they settle are never sent
+    # to the model. Run in every mode so a daily run also corrects the labels of
+    # sessions classified earlier in the same run.
+    if not args.dry_run:
+        fixed = mark_automatic(con)
+        flagged = apply_error_tags(con, cfg.get("error_tags") or {})
+        if fixed or flagged:
+            print("rules: %d prompts set to auto, %d set by a hashtag" % (fixed, flagged))
     if args.categorize:
         categorise(con, cfg, args.dry_run)
         return
