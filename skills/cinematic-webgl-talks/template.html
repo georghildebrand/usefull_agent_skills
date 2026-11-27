@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Why small errors grow</title>
+<style>
+  :root { --ink:#f2f4f8; --dim:#9aa3b2; --bg:#07080b; --accent:#ffcc4d; }
+  html,body { margin:0; height:100%; background:var(--bg); overflow:hidden; color:var(--ink);
+    font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  body.idle { cursor:none; }
+  #stage { position:fixed; display:block; outline:none; }
+  /* Text layer: fixed 1920x1080 coordinates, scaled with the canvas by fit(). */
+  #layer { position:fixed; left:0; top:0; width:1920px; height:1080px; transform-origin:0 0; pointer-events:none; }
+  .grp { position:absolute; inset:0; display:none; }
+  .grp.on { display:block; }
+  .t { position:absolute; white-space:pre; transition:none; }
+  .src { position:absolute; left:80px; bottom:48px; font-size:26px; color:var(--dim); }
+  #veil { position:fixed; inset:0; background:#000; opacity:0; pointer-events:none; }
+  #black { position:fixed; inset:0; background:#000; display:none; }
+  #notes { position:fixed; left:0; right:0; bottom:0; padding:14px 24px; background:rgba(10,12,16,.92);
+    font-size:18px; display:none; white-space:pre-wrap; }
+  #help { position:fixed; right:24px; top:24px; padding:16px 20px; background:rgba(10,12,16,.94);
+    font:15px/1.7 ui-monospace,Menlo,monospace; display:none; white-space:pre; }
+  .fail { position:fixed; inset:0; display:grid; place-items:center; font-size:22px; padding:40px; text-align:center; }
+</style>
+<!-- THREE_IMPORTMAP: build.mjs replaces this line with an import map that holds three.js inline -->
+</head>
+<body>
+<canvas id="stage" tabindex="0" aria-label="Presentation"></canvas>
+<div id="layer"></div>
+<div id="veil"></div>
+<div id="black"></div>
+<div id="notes"></div>
+<div id="help">→ space enter  next
+←              back
+Home / End     first / last
+1-9            scene number
+F              fullscreen
+N              notes on this screen
+P              presenter window
+B or .         black screen
+A              play by itself
+?              this help</div>
+<script type="module">
+import * as THREE from "three";
+
+/* =====================================================================
+   ENGINE. Keep this part as it is. Write scenes in the SCENES part below.
+   Rule: a scene's picture is a pure function of the state s = {beat, t}.
+   t is seconds since the beat started; t = Infinity means "beat finished".
+   ===================================================================== */
+const W = 1920, H = 1080;
+const qs = new URLSearchParams(location.search);
+const STILL = qs.has("still");          // screenshots: show the end state of the beat, no animation
+const canvas = document.getElementById("stage");
+const layer = document.getElementById("layer");
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance",
+    preserveDrawingBuffer: STILL });
+  if (!renderer.capabilities.isWebGL2) throw new Error("no WebGL 2");
+} catch (e) {
+  document.body.innerHTML = '<div class="fail">This presentation needs WebGL 2. Open it in a current Chrome, Edge, Safari or Firefox on a computer.</div>';
+  throw e;
+}
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+// --- helpers for scenes -------------------------------------------------
+const clamp01 = x => Math.max(0, Math.min(1, x));
+const lerp = (a, b, x) => a + (b - a) * x;
+const lerpLog = (a, b, x) => Math.exp(lerp(Math.log(a), Math.log(b), x)); // for zooms across many orders of magnitude
+const ease = { lin: x => x, inOut: x => x < .5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2, out: x => 1 - (1 - x) ** 3 };
+// k(s, beat, from, to): 0..1 progress of the window [from, to] seconds inside `beat`.
+// Earlier beats count as done (1), later beats as not started (0). Use it for EVERY animated value.
+function k(s, beat, from, to, e = ease.inOut) {
+  if (s.beat > beat) return 1;
+  if (s.beat < beat) return 0;
+  return e(clamp01((s.t - from) / Math.max(1e-6, to - from)));
+}
+function makeText(group) {
+  // HTML text in 1920x1080 coordinates. Crisp at every size, uses the system font: works offline.
+  return (str, o = {}) => {
+    const el = document.createElement("div");
+    el.className = "t" + (o.cls ? " " + o.cls : "");
+    Object.assign(el.style, { left: (o.x ?? 960) + "px", top: (o.y ?? 540) + "px",
+      fontSize: (o.size ?? 48) + "px", fontWeight: o.weight ?? 500, color: o.color ?? "var(--ink)",
+      transform: `translate(${o.align === "left" ? 0 : o.align === "right" ? -100 : -50}%,-50%)` });
+    el.textContent = str;
+    group.append(el);
+    return { el, set(v) { if (el.textContent !== v) el.textContent = v; return this; },
+             alpha(a) { el.style.opacity = a; return this; } };
+  };
+}
+
+// --- deck -----------------------------------------------------------------
+let scenes = [];                       // filled by registerScenes()
+let idx = -1, inst = null, s = { beat: 0, t: 0 }, auto = false, last = performance.now();
+const made = new Map();
+
+function instance(i) {
+  if (!made.has(i)) {
+    const def = scenes[i];
+    const group = document.createElement("div");
+    group.className = "grp";
+    layer.append(group);
+    const ctx = { THREE, renderer, W, H, text: makeText(group), k, ease, lerp, lerpLog, clamp01 };
+    const o = def.create(ctx);
+    if (def.source) ctx.text(def.source, { cls: "src", align: "left", x: 80, y: 1020, size: 26, color: "var(--dim)" });
+    made.set(i, { ...o, group });
+  }
+  return made.get(i);
+}
+
+function go(i, beat = 0, t = 0) {
+  i = Math.max(0, Math.min(scenes.length - 1, i));
+  const n = scenes[i].beats.length;
+  beat = Math.max(0, Math.min(n - 1, beat));
+  const change = () => {
+    if (inst) inst.group.classList.remove("on");
+    idx = i; inst = instance(i); inst.group.classList.add("on");
+    s = { beat, t: STILL ? Infinity : t };
+    writeHash(); updateNotes();
+  };
+  if (idx === i || idx < 0 || STILL) { change(); return; }
+  fade(change);
+}
+let fading = false;
+function fade(mid) {
+  if (fading) { mid(); return; }
+  fading = true;
+  const veil = document.getElementById("veil"), t0 = performance.now(), D = 350;
+  const step = now => {
+    const x = (now - t0) / D;
+    if (x < 1) { veil.style.opacity = x; requestAnimationFrame(step); return; }
+    if (x < 2) { if (veil.dataset.mid !== "1") { veil.dataset.mid = "1"; mid(); } veil.style.opacity = 2 - x; requestAnimationFrame(step); return; }
+    veil.style.opacity = 0; veil.dataset.mid = ""; fading = false;
+  };
+  requestAnimationFrame(step);
+}
+function next() {
+  const n = scenes[idx].beats.length;
+  if (s.beat < n - 1) { s = { beat: s.beat + 1, t: 0 }; writeHash(); updateNotes(); }
+  else if (idx < scenes.length - 1) go(idx + 1, 0, 0);
+}
+function back() {
+  // Going back shows the END state of the previous beat, so the speaker can continue from there.
+  if (s.beat > 0) { s = { beat: s.beat - 1, t: Infinity }; writeHash(); updateNotes(); }
+  else if (idx > 0) go(idx - 1, scenes[idx - 1].beats.length - 1, Infinity);
+}
+
+// Deep link: #<scene id>-<beat, 1-based>, e.g. #aim-2. Works on load and on hash change.
+function writeHash() { history.replaceState(null, "", `${location.pathname}${location.search}#${scenes[idx].id}-${s.beat + 1}`); }
+function readHash() {
+  const m = /^#([a-z0-9]+)(?:-(\d+))?$/.exec(location.hash);
+  if (!m) return null;
+  const i = scenes.findIndex(d => d.id === m[1]);
+  return i < 0 ? null : { i, beat: m[2] ? +m[2] - 1 : 0 };
+}
+addEventListener("hashchange", () => { const h = readHash(); if (h) go(h.i, h.beat, STILL ? Infinity : 0); });
+
+// --- notes and presenter window -------------------------------------------
+let presenter = null;
+const notesEl = document.getElementById("notes");
+function noteText() {
+  const d = scenes[idx], nx = s.beat < d.beats.length - 1 ? `${d.title}, step ${s.beat + 2}` : (scenes[idx + 1]?.title ?? "end");
+  return { now: `${idx + 1}. ${d.title}  (step ${s.beat + 1}/${d.beats.length})`, note: d.notes[s.beat] ?? "", next: nx };
+}
+function updateNotes() {
+  const n = noteText();
+  notesEl.textContent = `${n.now}\n${n.note}`;
+  if (presenter && !presenter.closed) {
+    presenter.document.getElementById("now").textContent = n.now;
+    presenter.document.getElementById("note").textContent = n.note;
+    presenter.document.getElementById("next").textContent = "Next: " + n.next;
+  }
+}
+const t0Talk = performance.now();
+function openPresenter() {
+  presenter = window.open("", "presenter", "width=760,height=520");
+  if (!presenter) return;
+  presenter.document.write(`<!doctype html><title>Presenter</title><body style="margin:0;padding:24px;background:#0c0e12;color:#eef;font:22px/1.5 system-ui">
+    <div id="clock" style="color:#9aa3b2"></div><h2 id="now" style="margin:.3em 0"></h2>
+    <div id="note" style="white-space:pre-wrap;font-size:26px"></div><p id="next" style="color:#9aa3b2"></p>`);
+  presenter.document.close();
+  presenter.document.onkeydown = onKey;          // the speaker can steer from either window
+  updateNotes();
+}
+
+// --- keys -----------------------------------------------------------------
+function onKey(e) {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const key = e.key;
+  if (["ArrowRight", "ArrowDown", " ", "PageDown", "Enter"].includes(key)) { e.preventDefault(); if (!e.repeat) next(); }
+  else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(key)) { e.preventDefault(); if (!e.repeat) back(); }
+  else if (key === "Home") go(0);
+  else if (key === "End") go(scenes.length - 1);
+  else if (/^[1-9]$/.test(key)) go(+key - 1);
+  else if (key === "f" || key === "F") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {});
+  else if (key === "n" || key === "N") notesEl.style.display = notesEl.style.display === "block" ? "none" : "block";
+  else if (key === "p" || key === "P") openPresenter();
+  else if (key === "b" || key === "B" || key === ".") { const b = document.getElementById("black"); b.style.display = b.style.display === "block" ? "none" : "block"; }
+  else if (key === "a" || key === "A") auto = !auto;
+  else if (key === "?" || key === "h") { const h = document.getElementById("help"); h.style.display = h.style.display === "block" ? "none" : "block"; }
+}
+addEventListener("keydown", onKey);
+canvas.addEventListener("click", next);
+let idleT; addEventListener("pointermove", () => { document.body.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(() => document.body.classList.add("idle"), 2200); });
+
+// --- fit 16:9 and adapt render resolution to the machine --------------------
+const QUALITY = [1, .84, .7, .58];
+let qi = 0, slowMs = 0, fastMs = 0;
+function fit() {
+  const vw = innerWidth, vh = innerHeight, w = Math.min(vw, vh * 16 / 9), h = w * 9 / 16;
+  Object.assign(canvas.style, { width: w + "px", height: h + "px", left: (vw - w) / 2 + "px", top: (vh - h) / 2 + "px" });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * QUALITY[qi]);
+  renderer.setSize(w, h, false);
+  layer.style.transform = `translate(${(vw - w) / 2}px,${(vh - h) / 2}px) scale(${w / W})`;
+}
+addEventListener("resize", fit);
+function adapt(ms) {
+  // A projector at 4K on a laptop GPU is the usual cause of stutter. Lower the pixel ratio step by step.
+  if (STILL || document.hidden || ms > 200) return;
+  if (ms > 21) { slowMs += ms; fastMs = 0; } else { fastMs += ms; slowMs = Math.max(0, slowMs - ms); }
+  if (slowMs > 1200 && qi < QUALITY.length - 1) { qi++; slowMs = 0; fit(); }
+  if (fastMs > 6000 && qi > 0) { qi--; fastMs = 0; fit(); }
+}
+
+function frame(now) {
+  const ms = now - last; last = now;
+  if (!STILL) s.t += ms / 1000;
+  const b = scenes[idx].beats[s.beat];
+  if (auto && !STILL && s.t > (b.dur ?? 1) + (b.hold ?? 3)) next();
+  inst.update(s);
+  renderer.render(inst.scene, inst.camera);
+  adapt(ms);
+  if (presenter && !presenter.closed) {
+    const sec = Math.floor((now - t0Talk) / 1000);
+    presenter.document.getElementById("clock").textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+  }
+  // Keep drawing in still mode too: headless Chrome screenshots only the frames the
+  // compositor received, and a loop that stops after one frame gives an empty canvas.
+  if (STILL) window.__ready = true;
+  requestAnimationFrame(frame);
+}
+
+function start(list) {
+  scenes = list;
+  fit();
+  const h = readHash();
+  go(h ? h.i : 0, h ? h.beat : 0, STILL ? Infinity : 0);
+  requestAnimationFrame(frame);
+}
+
+/* =====================================================================
+   SCENES. One scene = one claim = one picture whose geometry IS the number.
+   Contract:
+     { id: "lowercase", title, source: "Source: … | Illustration",
+       beats: [{ dur, hold }],            // dur = animation seconds, hold = pause before auto-advance
+       notes: ["what the speaker says (stage directions in brackets)", …],  // one per beat
+       create(ctx) → { scene, camera, update(s) } }
+   update(s) must SET every animated value from s (via k / lerp), never add to it.
+   ===================================================================== */
+
+// ---- Scene 1: each domino 1.5x the one before; step 30 is 1.28 km tall.
+function dominoes(ctx) {
+  const { THREE, text, k, lerpLog, clamp01 } = ctx;
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color("#0b0d12");
+  const camera = new THREE.PerspectiveCamera(40, 16 / 9, 0.001, 1e5);
+  scene.add(new THREE.HemisphereLight("#cfd8ff", "#202018", 1.4));
+  const sun = new THREE.DirectionalLight("#ffffff", 2.2); sun.position.set(-1, 2, 1.5); scene.add(sun);
+  const N = 30, R = 1.5, h0 = 0.01;
+  const hs = Array.from({ length: N }, (_, i) => h0 * R ** i);
+  const xs = [0]; for (let i = 1; i < N; i++) xs.push(xs[i - 1] + hs[i - 1] * 0.62);   // gap < height, so each one reaches the next
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const pivots = hs.map((h, i) => {
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: i === N - 1 ? "#ffcc4d" : "#e9ecf2", roughness: .55 }));
+    m.scale.set(h * 0.16, h, h * 0.5);
+    m.position.set(-h * 0.08, h / 2, 0);           // pivot sits on the front bottom edge
+    const p = new THREE.Group(); p.position.x = xs[i] + h * 0.08; p.add(m); scene.add(p);
+    return p;
+  });
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1e5, 1e5), new THREE.MeshStandardMaterial({ color: "#14161c" }));
+  floor.rotation.x = -Math.PI / 2; scene.add(floor);
+  const big = text("1 cm", { x: 960, y: 170, size: 96, weight: 700 });
+  const sub = text("", { x: 960, y: 265, size: 40, color: "var(--dim)" });
+  const fmt = m => m < 1 ? `${Math.round(m * 100)} cm` : m < 1000 ? `${m.toFixed(m < 10 ? 1 : 0)} m` : `${(m / 1000).toFixed(2)} km`;
+  return {
+    scene, camera,
+    update(s) {
+      const fall = k(s, 1, 0.3, 9, ctx.ease.lin);          // beat 2: the wave runs through all 30
+      const front = fall * N;                               // fractional count of fallen dominoes
+      // Each one leans onto the next (sin 38° ≈ the 0.62 gap); the last one falls flat.
+      pivots.forEach((p, i) => { p.rotation.z = -clamp01(front - i) * (i < N - 1 ? 0.67 : 1.45); });
+      const i0 = Math.min(N - 1, Math.floor(front)), i1 = Math.min(N - 1, i0 + 1), f = Math.min(1, front - i0);
+      const hf = lerpLog(hs[i0], hs[i1], f), xf = ctx.lerp(xs[i0], xs[i1], f);
+      const show = hf * (1 + 2 * k(s, 2, 0, 2.5));          // beat 3: pull back further
+      camera.position.set(xf + show * 0.9, show * 1.1, show * 3.2);
+      camera.lookAt(xf + show * 0.4, show * 0.45, 0);
+      camera.near = show * 0.01; camera.far = show * 400; camera.updateProjectionMatrix();
+      const step = Math.min(N, Math.floor(front) + 1);
+      big.set(fmt(hs[step - 1]));
+      sub.set(s.beat === 0 ? "Step 1. The next one is 1.5 times taller." : s.beat === 1 ? `Step ${step}` : "Step 30. Taller than any building on Earth.");
+    }
+  };
+}
+
+// ---- Scene 2: one degree off. Same picture at every distance; only the labels change.
+function aim(ctx) {
+  const { THREE, text, k, lerpLog } = ctx;
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color("#05060a");
+  const camera = new THREE.PerspectiveCamera(35, 16 / 9, 0.1, 1e6);
+  scene.add(new THREE.AmbientLight("#ffffff", .5));
+  const key = new THREE.DirectionalLight("#ffffff", 2.5); key.position.set(1, 3, 2); scene.add(key);
+  const TAN1 = Math.tan(Math.PI / 180);
+  // [distance m, target radius m, label]
+  const stops = [[10, 0.2, "10 m: a dartboard"], [3.844e8, 1.7374e6, "The Moon"], [4.0114e16, 6.957e8, "The nearest star"]];
+  const fmt = m => m < 1 ? `${Math.round(m * 100)} cm` : m < 1.5e11 * 10 ? `${Math.round(m / 1000).toLocaleString("en")} km` : `${Math.round(m / 1.496e11).toLocaleString("en")} times Earth to Sun`;
+  // Draw in units of "distance = 1": geometry stays the same, we only rescale the target.
+  const lineMat = c => new THREE.MeshBasicMaterial({ color: c });
+  const thick = TAN1 * 0.02;
+  const ideal = new THREE.Mesh(new THREE.BoxGeometry(1, thick, thick), lineMat("#5b6b88")); ideal.position.x = 0.5;
+  const real = new THREE.Mesh(new THREE.BoxGeometry(1 / Math.cos(Math.PI / 180), thick, thick), lineMat("#ffcc4d"));
+  const realG = new THREE.Group(); realG.rotation.z = Math.PI / 180; real.position.x = 0.5 / Math.cos(Math.PI / 180); realG.add(real);
+  const target = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshStandardMaterial({ color: "#c9cfdb", roughness: .8 }));
+  target.position.x = 1;
+  scene.add(ideal, realG, target);
+  const where = text("", { x: 960, y: 150, size: 64, weight: 700 });
+  const miss = text("", { x: 960, y: 240, size: 44, color: "var(--accent)" });
+  return {
+    scene, camera,
+    update(s) {
+      // Which two stops are we between? Beat b moves from stop b-1 to stop b.
+      let a = 0, x = 0;
+      for (let b = 1; b < stops.length; b++) { const p = k(s, b, 0, 3); if (p > 0) { a = b - 1; x = p; } }
+      const D = lerpLog(stops[a][0], stops[Math.min(a + 1, 2)][0], x);
+      const r = lerpLog(stops[a][1], stops[Math.min(a + 1, 2)][1], x);
+      target.scale.setScalar(r / D);                       // target size relative to distance
+      const g = TAN1;                                       // the gap, in units of distance
+      camera.position.set(1 - g * 0.6, g * 0.66, g * 3.6);   // gap sits below the headline
+      camera.lookAt(1, g * 0.66, 0);
+      camera.near = g * 0.01; camera.far = 10; camera.updateProjectionMatrix();
+      const st = stops[x > 0.5 ? Math.min(a + 1, 2) : a];
+      where.set(st[2]);
+      miss.set(`Miss: ${fmt(D * TAN1)}`);
+    }
+  };
+}
+
+start([
+  { id: "dominoes", title: "Thirty steps", source: "Arithmetic: 1 cm × 1.5^29 = 1.28 km",
+    beats: [{ dur: 1, hold: 4 }, { dur: 9.5, hold: 2 }, { dur: 2.5, hold: 4 }],
+    notes: ["The first domino is one centimetre tall. Each next one is half again as tall. (Pause.)",
+            "Watch the row fall. After ten dominoes we are at 38 centimetres, after twenty at 22 metres. (Stay quiet until the wave stops.)",
+            "Domino thirty is 1.28 kilometres tall. The rule never changed: times 1.5, thirty times."],
+    create: dominoes },
+  { id: "aim", title: "One degree", source: "Geometry: miss = distance × tan(1°)",
+    beats: [{ dur: 1, hold: 4 }, { dur: 3, hold: 4 }, { dur: 3, hold: 5 }],
+    notes: ["Two lines from one point, one degree apart. At ten metres the gap is 17 centimetres: the dart still lands on the board.",
+            "Keep the same angle and go to the Moon. The gap is now about 6,700 kilometres, roughly two Moon diameters. (Point at the gap.)",
+            "At the nearest star the gap is about 4,700 times the Earth-Sun distance. The picture did not change, only the distance."],
+    create: aim },
+]);
+</script>
+</body>
+</html>
