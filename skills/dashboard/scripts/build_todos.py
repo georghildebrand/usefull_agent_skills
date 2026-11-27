@@ -17,6 +17,7 @@ import common  # noqa: E402
 OPEN = {"todo", "in_progress", "blocked"}
 PREFIX = re.compile(r"^\[MEM\]\[todo\]\[[^\]]*\]\s*")
 TITLE_MAX = 220
+DESC_MAX = 900
 
 
 def build(todo_list_result, project):
@@ -32,6 +33,9 @@ def build(todo_list_result, project):
             "version": t.get("version"),
             "updatedAt": t.get("updated_at"),
             "createdAt": t.get("created_at"),
+            "desc": (t.get("description") or "")[:DESC_MAX],
+            "blockedReason": (t.get("blocked_reason") or "")[:300],
+            "dueAt": t.get("due_at") or "",
         })
     items.sort(key=lambda i: i["updatedAt"] or "", reverse=True)
     for n, item in enumerate(items):

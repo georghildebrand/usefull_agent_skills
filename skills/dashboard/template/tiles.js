@@ -170,11 +170,16 @@
    * Comment text from the refresh and sync buttons, accepted exactly:
    *   dashboard refresh <preset> <tile|all>   (a list tile is list:<skill-id>)
    *   dashboard sync <preset>
+   *   dashboard dispatch <preset> <session>: <message>   (message up to 600 characters)
    */
   function parseCommand(text) {
     if (typeof text !== 'string') return null;
     var p = text.trim().split(/\s+/);
     if (p[0] !== 'dashboard') return null;
+    if (p[1] === 'dispatch') {
+      var m = /^\s*dashboard dispatch ([A-Za-z0-9][A-Za-z0-9_-]{0,63}) ([A-Za-z0-9._-]{1,80}): ([\s\S]{1,600}?)\s*$/.exec(text);
+      return m ? { cmd: 'dispatch', preset: m[1], session: m[2], message: m[3] } : null;
+    }
     if (p[1] === 'sync' && p.length === 3 && PRESET.test(p[2])) return { cmd: 'sync', preset: p[2], tile: null };
     if (p[1] !== 'refresh' || p.length !== 4 || !PRESET.test(p[2])) return null;
     var tile = p[3];

@@ -16,7 +16,9 @@ The dashboard session converts the current rows of the status table into one doc
             "context": "...", "state": "...", "next": "..."}]}
 ```
 
-The page repeats a workstream for later rows of the same group, so write the name only in the first row of a group. If the session has no status table, run the `statustable` skill first, or leave the document alone and say so.
+The page repeats a workstream for later rows of the same group, so write the name only in the first row of a group.
+
+Optional fields per row (template 3): `recap` (one or two sentences, always visible), `detail` (longer text, shown on hover or tap) and `prio: "low"` (row is dimmed). If the session has no status table, run the `statustable` skill first, or leave the document alone and say so.
 
 ## Left out
 

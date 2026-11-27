@@ -1,7 +1,7 @@
 <title>__TITLE__</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="dashboard-preset" content="__PRESET__">
-<meta name="dashboard-template" content="2">
+<meta name="dashboard-template" content="7">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: one toolbar row, then a 12-column drag-and-resize grid on a dotted ground.
@@ -128,6 +128,16 @@ body {
 .tl .d { grid-column: 2; font-size: 12px; color: var(--fg); overflow-wrap: anywhere; }
 .tl .d.moved { color: var(--warn); }
 .tl li.unread .t { font-weight: 600; }
+.tl li.low { opacity: 0.6; }
+.tl .more { grid-column: 2; display: none; font-size: 12px; color: var(--fg); border-left: 2px solid var(--accent); padding-left: 8px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.tl li:hover .more, .tl li:focus .more, .tl li:focus-within .more { display: block; }
+.tl li:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tl .dsp { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tl .dsp .inp { flex: 1 1 160px; }
+.tl .dsp .go { font: 500 12px var(--font-body); color: var(--accent); background: none; border: 1px solid var(--line); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+.tl .dsp .go:disabled { opacity: 0.5; cursor: default; }
+.tl .dsp .go:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tl .dsp .dmsg { flex-basis: 100%; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .empty { color: var(--muted); font-size: 13px; margin: 0; }
 .st { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .st-text { flex: 1; min-height: 0; overflow: auto; white-space: pre-wrap; font-size: 14px; }
@@ -300,6 +310,9 @@ body {
   // todostate/flags, todostate/seen and todostate/notes: has the first snapshot arrived, does the document exist.
   var markDocs = { flags: { loaded: false, exists: false }, seen: { loaded: false, exists: false }, notes: { loaded: false, exists: false } };
   var sessionsDoc = null, sessionsLoaded = false;
+  // Optional doc sessions/labels: {v: 1, labels: {"<session name>": "<what the session works on>"}}.
+  // The tile then shows "<label> (<name>)", so a session without its own name is still recognisable.
+  var sessionLabels = {};
   var statusDocs = [], statusLoaded = false, statusSel = 'current', statusNote = '';
   var tts = null, ttsReady = false, ttsState = 'idle', ttsMsg = '';
   var jiraDoc = null, jiraLoaded = false;
@@ -311,7 +324,7 @@ body {
   var FLAG_ORDER = ['in_progress', 'done', 'blocked', 'cancelled', 'todo'];
   var FKEY = 'widget-raster-filters-v1';
   var LKEY = 'dashboard-list-filters-v1';
-  var flt = { q: '', project: '', status: '', prio: '', age: '60', sq: '', ssort: 'active',
+  var flt = { q: '', project: '', status: '', prio: '', age: '60', sq: '', ssort: 'active', tsort: '',
               jq: '', jproject: '', jrole: '', jstat: '', jtype: '', jage: '60',
               fq: '', fsrc: '', fonly: '' };
   var lflt = {};                      // per list tile: {q, status, sort}
@@ -397,10 +410,16 @@ body {
         }).join('');
       // The source changed after the mark was set: /dashboard sync will not write this mark.
       var moved = typeof flags[t.key] === 'string' && STATUS_LABEL[flags[t.key]] && typeof seen[t.key] === 'string' && seen[t.key] !== t.status;
-      return '<li><select class="sel sm flag' + (f ? ' set' : '') + ' s-' + esc(t.status) + '" data-flag="' + esc(t.key) + '" data-shown="' + esc(t.status) + '" aria-label="Status ändern: ' + esc(t.title) + '">' + opts + '</select>' +
+      // Optional text from the ToDo's description: first sentence always visible, the rest on hover or tap.
+      var desc = typeof t.desc === 'string' ? t.desc.replace(/\s+/g, ' ').trim() : '';
+      var recap = desc ? (desc.length > 200 ? desc.slice(0, desc.slice(0, 200).lastIndexOf(' ') > 80 ? desc.slice(0, 200).lastIndexOf(' ') : 200) + ' …' : desc) : '';
+      var more = [t.blockedReason ? 'Blockiert: ' + t.blockedReason : '', t.dueAt ? 'Fällig: ' + (fmt(t.dueAt) || t.dueAt) : '', desc.length > 200 ? desc : ''].filter(Boolean).join('\n\n');
+      return '<li tabindex="0"><select class="sel sm flag' + (f ? ' set' : '') + ' s-' + esc(t.status) + '" data-flag="' + esc(t.key) + '" data-shown="' + esc(t.status) + '" aria-label="Status ändern: ' + esc(t.title) + '">' + opts + '</select>' +
         '<a class="t zl" href="zotero://select/library/items/' + encodeURIComponent(t.key) + '" title="In Zotero öffnen">' + esc(t.title) + '</a>' +
         '<span class="p">' + esc([row.project, t.priority, t.updatedAt ? 'geändert ' + fmt(t.updatedAt, true) : ''].filter(Boolean).join(' · ')) +
         ' · <span class="kc">' + esc(t.key) + '</span> <button type="button" class="cp" data-copy="' + esc(t.key) + '">kopieren</button></span>' +
+        (recap ? '<span class="d">' + esc(recap) + '</span>' : '') +
+        (more ? '<span class="more">' + esc(more) + '</span>' : '') +
         (moved ? '<span class="d moved">' + esc('Der Status hat sich in zotero2ai geändert: beim Setzen der Marke „' + (STATUS_LABEL[seen[t.key]] || seen[t.key]) +
           '“, jetzt „' + (STATUS_LABEL[t.status] || t.status) + '“. Der Abgleich schreibt diese Marke nicht. Prüfe sie und bestätige sie oder nimm sie zurück.') +
           ' <button type="button" class="cp" data-confirm-flag="' + esc(t.key) + '" data-shown="' + esc(t.status) + '">bestätigen</button></span>' : '') +
@@ -531,8 +550,12 @@ body {
     var ws = waitState(sessionsLoaded);
     if (ws) return emptyP('sessions', ws);
     var all = sessionsDoc && Array.isArray(sessionsDoc.items) ? sessionsDoc.items : [];
+    all = all.map(function (s) {
+      var l = s && typeof s.name === 'string' && Object.prototype.hasOwnProperty.call(sessionLabels, s.name) ? sessionLabels[s.name] : '';
+      return typeof l === 'string' && l && l !== s.name ? Object.assign({}, s, { rawName: s.name, name: l + ' (' + s.name + ')' }) : Object.assign({}, s, { rawName: s.name });
+    });
     var items = T.sortSessions(all, flt);
-    var cap = '<div class="cap">' + esc(stand(sessionsDoc && (sessionsDoc.syncedAt || sessionsDoc.updatedAt)) + ' · ' + items.length + ' von ' + all.length + ' Sitzungen' + T.truncatedNote(T.truncatedOf(sessionsDoc)) + '. Zum Weiterleiten: eine Zeile kommentieren und an Claude senden.') + '</div>';
+    var cap = '<div class="cap">' + esc(stand(sessionsDoc && (sessionsDoc.syncedAt || sessionsDoc.updatedAt)) + ' · ' + items.length + ' von ' + all.length + ' Sitzungen' + T.truncatedNote(T.truncatedOf(sessionsDoc)) + '. Zum Weiterleiten: Text in das Feld der Sitzung schreiben und auf Senden drücken.') + '</div>';
     if (!all.length) return cap + emptyP('sessions', 'empty');
     if (!items.length) return cap + emptyP('sessions', 'nomatch');
     var KIND = { interactive: 'interaktiv', bg: 'Hintergrund' };
@@ -540,11 +563,33 @@ body {
       var busy = s.state && s.state !== 'idle';
       return '<li><span class="pill' + (busy ? ' s-in_progress' : '') + '">' + esc(s.state === 'idle' ? 'wartet' : s.state === 'busy' ? 'arbeitet' : s.state) + '</span>' +
         '<span class="t">' + esc(s.name) + '</span>' +
-        '<span class="p">' + esc([KIND[s.kind] || s.kind, s.startedAt ? 'gestartet ' + fmt(s.startedAt) : '', s.lastActiveAt ? 'aktiv ' + agoText(s.lastActiveAt, 'vor') : '', s.cwd].filter(Boolean).join(' · ')) + '</span></li>';
+        '<span class="p">' + esc([KIND[s.kind] || s.kind, s.startedAt ? 'gestartet ' + fmt(s.startedAt) : '', s.lastActiveAt ? 'aktiv ' + agoText(s.lastActiveAt, 'vor') : '', s.cwd].filter(Boolean).join(' · ')) + '</span>' + dispatchFormHtml(s.rawName) + '</li>';
     }).join('') + '</ul>';
   }
+  // A line to send text to one Claude session. The text goes to the watching master session as a
+  // comment "dashboard dispatch <preset> <session>: <text>"; that session forwards it.
+  function dispatchFormHtml(name) {
+    if (typeof name !== 'string' || !/^[A-Za-z0-9._-]{1,80}$/.test(name)) return '';
+    return '<form class="dsp" data-dsp="' + esc(name) + '">' +
+      '<input type="text" class="inp" maxlength="600" placeholder="An diese Sitzung schreiben …" aria-label="Text an Sitzung ' + esc(name) + '">' +
+      '<button type="submit" class="go">Senden</button><span class="dmsg" data-dmsg role="status" hidden></span></form>';
+  }
   function renderSessions() {
+    // Keep what the user is typing, and the "sent" notes, when a data snapshot redraws the list.
+    var keep = {};
+    Array.prototype.forEach.call(document.querySelectorAll('[data-dsp]'), function (f) {
+      var inp = f.querySelector('input'), msg = f.querySelector('[data-dmsg]');
+      keep[f.getAttribute('data-dsp')] = { v: inp.value, m: msg.hidden ? '' : msg.textContent, focus: document.activeElement === inp };
+    });
     Array.prototype.forEach.call(document.querySelectorAll('[data-session-list]'), function (el) { el.innerHTML = sessionListHtml(); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-dsp]'), function (f) {
+      var k = keep[f.getAttribute('data-dsp')];
+      if (!k) return;
+      var inp = f.querySelector('input'), msg = f.querySelector('[data-dmsg]');
+      inp.value = k.v;
+      if (k.m) { msg.textContent = k.m; msg.hidden = false; }
+      if (k.focus) inp.focus();
+    });
   }
 
   // ---- status to listen to ----
@@ -616,20 +661,46 @@ body {
     var cap = '<div class="cap">' + esc(stand(sttDoc && sttDoc.syncedAt) + (rows.length ? ' · ' + rows.length + ' Zeilen' : '')) + '</div>';
     if (!rows.length) return cap + emptyP('statustable', 'empty');
     // The statustable skill names a workstream only in its first row; later rows inherit it.
-    var group = '', started = false, out = '';
-    rows.forEach(function (r) {
-      var w = r.workstream ? String(r.workstream) : group;
-      if (!started || w !== group) {
-        if (started) out += '</ul>';
-        out += (w ? '<p class="grp">' + esc(w) + '</p>' : '') + '<ul class="tl">';
-        group = w; started = true;
-      }
-      out += '<li><span class="pill">' + esc(r.id || '') + '</span><span class="t">' + esc(r.topic || '') + '</span>' +
+    var inherit = '';
+    rows = rows.map(function (r, i) {
+      if (r.workstream) inherit = String(r.workstream);
+      return { r: r, w: inherit, i: i };
+    });
+    // Optional row field prio: critical | high | normal | low. A row without it counts as normal.
+    var RANK = { critical: 0, high: 1, normal: 2, low: 3 };
+    var PRIO_LABEL = { critical: ['kritisch', ' s-blocked'], high: ['hoch', ' s-in_progress'] };
+    var mode = flt.tsort;
+    if (mode === 'urgent') {
+      rows.sort(function (a, b) {
+        var x = RANK[a.r.prio] == null ? 2 : RANK[a.r.prio], y = RANK[b.r.prio] == null ? 2 : RANK[b.r.prio];
+        return x - y || a.i - b.i;
+      });
+    } else if (mode === 'topic') {
+      rows.sort(function (a, b) { return String(a.r.topic || '').localeCompare(String(b.r.topic || ''), 'de') || a.i - b.i; });
+    }
+    function rowHtml(x) {
+      var r = x.r, p = PRIO_LABEL[r.prio];
+      return '<li' + (r.prio === 'low' ? ' class="low"' : '') + ' tabindex="0"><span class="pill">' + esc(r.id || '') + '</span>' +
+        '<span class="t">' + esc((mode && x.w ? x.w + ': ' : '') + (r.topic || '')) + '</span>' +
+        (p ? '<span class="d"><span class="pill' + p[1] + '">' + p[0] + '</span></span>' : '') +
+        (r.recap ? '<span class="d">Recap: ' + esc(r.recap) + '</span>' : '') +
         (r.state ? '<span class="d">' + esc(r.state) + '</span>' : '') +
         (r.next ? '<span class="d">Nächster Schritt: ' + esc(r.next) + '</span>' : '') +
-        (r.context ? '<span class="p">' + esc(r.context) + '</span>' : '') + '</li>';
+        (r.context ? '<span class="p">' + esc(r.context) + '</span>' : '') +
+        (r.detail ? '<span class="more">' + esc(r.detail) + '</span>' : '') + '</li>';
+    }
+    var sort = '<div class="flt">' + selHtml('tsort', [['', 'nach Themenblock'], ['urgent', 'nach Dringlichkeit'], ['topic', 'nach Thema A–Z']], 'Sortierung der Statustabelle') + '</div>';
+    if (mode) return sort + cap + '<ul class="tl">' + rows.map(rowHtml).join('') + '</ul>';
+    var group = '', started = false, out = '';
+    rows.forEach(function (x) {
+      if (!started || x.w !== group) {
+        if (started) out += '</ul>';
+        out += (x.w ? '<p class="grp">' + esc(x.w) + '</p>' : '') + '<ul class="tl">';
+        group = x.w; started = true;
+      }
+      out += rowHtml(x);
     });
-    return cap + out + '</ul>';
+    return sort + cap + out + '</ul>';
   }
   function renderStt() {
     Array.prototype.forEach.call(document.querySelectorAll('[data-stt]'), function (el) { el.innerHTML = sttHtml(); });
@@ -712,9 +783,11 @@ body {
     if (!rows.length) return cap + emptyP('list', 'nomatch');
     return cap + '<ul class="tl">' + rows.map(function (i) {
       var link = safeUrl(i.link);
-      return '<li><span class="pill">' + esc(i.status || '·') + '</span>' +
+      return '<li' + (i.prio === 'low' ? ' class="low"' : '') + ' tabindex="0"><span class="pill">' + esc(i.status || '·') + '</span>' +
         (link ? '<a class="t zl" href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(i.title) + '</a>' : '<span class="t">' + esc(i.title) + '</span>') +
-        ((i.group || i.date) ? '<span class="p">' + esc([i.group, i.date ? fmt(i.date) || i.date : ''].filter(Boolean).join(' · ')) + '</span>' : '') + '</li>';
+        (i.recap ? '<span class="d">Recap: ' + esc(String(i.recap)) + '</span>' : '') +
+        ((i.group || i.date) ? '<span class="p">' + esc([i.group, i.date ? fmt(i.date) || i.date : ''].filter(Boolean).join(' · ')) + '</span>' : '') +
+        (i.detail ? '<span class="more">' + esc(String(i.detail)) + '</span>' : '') + '</li>';
     }).join('') + '</ul>';
   }
   function renderLists() {
@@ -741,6 +814,7 @@ body {
   function rerenderFor(name) {
     if (name.charAt(0) === 'j') renderJira();
     else if (name === 'sq' || name === 'ssort') renderSessions();
+    else if (name === 'tsort') renderStt();
     else if (name.charAt(0) === 'f') renderFeed();
     else renderTodos();
   }
@@ -785,6 +859,48 @@ body {
       });
     }).then(function () { btn.disabled = false; }, function () { btn.disabled = false; });
   }
+
+  // ---- dispatch: send a line to one session through the master session ----
+  function requestDispatch(form) {
+    var name = form.getAttribute('data-dsp'), inp = form.querySelector('input'), btn = form.querySelector('button');
+    var msg = form.querySelector('[data-dmsg]'), text = inp.value.replace(/\s+/g, ' ').trim();
+    function say(t) { msg.textContent = t; msg.hidden = false; }
+    if (!text || btn.disabled) { if (!text) say('Bitte erst einen Text eingeben.'); return; }
+    var cmd = 'dashboard dispatch ' + PRESET + ' ' + name + ': ' + text;
+    if (!T.parseCommand(cmd)) { say('Der Text ist zu lang oder enthält ein nicht erlaubtes Zeichen.'); return; }
+    btn.disabled = true;
+    var c = null;
+    commentsP.then(function (cm) {
+      c = commentsOff ? null : cm;
+      if (!c) return 'off';
+      return c.canSendToClaude().catch(function () { return 'off'; });
+    }).then(function (state) {
+      if (state !== 'available') {
+        say(state === 'no_session' ? 'Nicht gesendet: Gerade hört keine Claude-Sitzung auf diese Seite.'
+          : state === 'writers_only' ? 'Nicht gesendet: Nur Bearbeiter dieser Seite können Claude von hier aus fragen.'
+          : 'Nicht gesendet: Aus dieser Ansicht lässt sich Claude nicht direkt fragen.');
+        return;
+      }
+      return c.anchorFor(form).then(function (anchor) {
+        return c.sendToClaude({ anchor: anchor, text: cmd });
+      }).then(function () {
+        inp.value = '';
+        say('An die Master-Sitzung gesendet um ' + hhmm() + '. Sie leitet es an ' + name + ' weiter und schreibt das Ergebnis in den Kommentar-Thread.');
+      }, function (e) {
+        var code = e && e.code;
+        if (code === 'forbidden' || code === 'not_granted' || code === 'capability_disabled' || code === 'capability_removed') commentsOff = true;
+        say(code === 'consent_required' ? 'Nicht gesendet: Kommentare von dieser Seite sind noch nicht erlaubt.'
+          : code === 'rate_limited' ? 'Nicht gesendet: zu viele Anfragen in kurzer Zeit.'
+          : 'Nicht gesendet.');
+      });
+    }).then(function () { btn.disabled = false; }, function () { btn.disabled = false; });
+  }
+  document.addEventListener('submit', function (ev) {
+    var f = ev.target.closest && ev.target.closest('[data-dsp]');
+    if (!f) return;
+    ev.preventDefault();
+    requestDispatch(f);
+  });
 
   // ---- layout: kept in meta/layout so it is the same on every device ----
   var kinds = {};
@@ -908,6 +1024,11 @@ body {
       db.doc('sessions/list').onSnapshot(function (s) {
         sessionsDoc = s.exists ? s.data() : null; sessionsLoaded = true; renderSessions();
       }, function () { sessionsLoaded = true; renderSessions(); });
+      db.doc('sessions/labels').onSnapshot(function (s) {
+        var d = s.exists ? s.data() : null;
+        sessionLabels = d && d.labels && typeof d.labels === 'object' && !Array.isArray(d.labels) ? d.labels : {};
+        renderSessions();
+      }, function () {});
       db.collection('status').onSnapshot(function (snap) { takeStatus(snap); renderStatus(); },
         function () { statusLoaded = true; renderStatus(); });
       db.doc('statustable/current').onSnapshot(function (s) {
