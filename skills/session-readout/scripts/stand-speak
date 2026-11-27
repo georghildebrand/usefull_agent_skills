@@ -10,7 +10,7 @@
 #   stand-speak --check   show output device and TTS state, no sound
 #
 # Settings (environment): STAND_ENGINE=auto|qwen|system, STAND_TTS_URL, STAND_TTS_MODEL,
-# STAND_TTS_VOICE, STAND_SYSTEM_LANG, STAND_SYSTEM_VOICE, STAND_APP (path of the .app).
+# STAND_TTS_VOICE, STAND_SYSTEM_LANG, STAND_SYSTEM_VOICE, STAND_PIPER_MODEL, STAND_PIPER_BIN, STAND_APP (path of the .app).
 # Persistent settings: put the same variables in ~/.config/stand-speak.conf (shell syntax).
 set -euo pipefail
 
@@ -26,7 +26,7 @@ stop() { pkill -x Sitzungsstand 2>/dev/null || true; }
 
 case "${1:-}" in
   --stop)  stop; exit 0 ;;
-  --check) exec "$BIN" --check ;;
+  --check) A=(--check); [ -n "${STAND_PIPER_MODEL:-}" ] && A+=(--piper-model "$STAND_PIPER_MODEL"); exec "$BIN" "${A[@]}" ;;
 esac
 
 SESSION="unbekannt"
@@ -42,6 +42,8 @@ ARGS=(--file "$FILE" --session "$SESSION" --engine "${STAND_ENGINE:-auto}")
 [ -n "${STAND_TTS_MODEL:-}" ]   && ARGS+=(--tts-model "$STAND_TTS_MODEL")
 [ -n "${STAND_TTS_VOICE:-}" ]   && ARGS+=(--tts-voice "$STAND_TTS_VOICE")
 [ -n "${STAND_SYSTEM_LANG:-}" ] && ARGS+=(--system-lang "$STAND_SYSTEM_LANG")
+[ -n "${STAND_PIPER_MODEL:-}" ] && ARGS+=(--piper-model "$STAND_PIPER_MODEL")
+[ -n "${STAND_PIPER_BIN:-}" ]   && ARGS+=(--piper-bin "$STAND_PIPER_BIN")
 [ -n "${STAND_SYSTEM_VOICE:-}" ] && ARGS+=(--system-voice "$STAND_SYSTEM_VOICE")
 
 stop   # only one window at a time

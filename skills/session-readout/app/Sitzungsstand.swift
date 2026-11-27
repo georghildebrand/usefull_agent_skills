@@ -13,7 +13,7 @@
 //
 // Usage: Sitzungsstand --file <text file, one sentence per line> [--session <label>]
 //          [--engine auto|qwen|system] [--tts-url U] [--tts-model M] [--tts-voice V] [--system-lang L]
-//          [--system-voice NAME]
+//          [--system-voice NAME] [--piper-model VOICE.onnx] [--piper-bin PATH]
 //        Sitzungsstand --check   (print output device and TTS server state, no window, no sound)
 
 import AppKit
@@ -36,7 +36,30 @@ let ttsURL = arg("--tts-url") ?? "http://127.0.0.1:8890/v1"
 let ttsModel = arg("--tts-model") ?? "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16"
 let ttsVoice = arg("--tts-voice") ?? "Ryan"
 let systemLang = arg("--system-lang") ?? "de-DE"
-let engineSetting = arg("--engine") ?? "auto"  // auto | qwen | system
+let engineSetting = arg("--engine") ?? "auto"  // auto | piper | qwen | system
+let piperBin = arg("--piper-bin") ?? (NSHomeDirectory() + "/.local/bin/piper")
+let piperModel = arg("--piper-model")  // path to a Piper .onnx voice; used first when set
+let usePiper = engineSetting != "qwen" && engineSetting != "system"
+    && piperModel.map { FileManager.default.fileExists(atPath: $0) } == true
+    && FileManager.default.isExecutableFile(atPath: piperBin)
+
+/// Run Piper for one sentence and return the WAV data (nil on error).
+func piperSynth(_ text: String) -> Data? {
+    let out = NSTemporaryDirectory() + "sitzungsstand-\(UUID().uuidString).wav"
+    defer { try? FileManager.default.removeItem(atPath: out) }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: piperBin)
+    p.arguments = ["-m", piperModel!, "-f", out]
+    let inPipe = Pipe()
+    p.standardInput = inPipe
+    p.standardOutput = FileHandle.nullDevice
+    p.standardError = FileHandle.nullDevice
+    do { try p.run() } catch { return nil }
+    inPipe.fileHandleForWriting.write(text.data(using: .utf8)!)
+    try? inPipe.fileHandleForWriting.close()
+    p.waitUntilExit()
+    return p.terminationStatus == 0 ? FileManager.default.contents(atPath: out) : nil
+}
 let systemVoiceName = arg("--system-voice")  // name or identifier; default = best quality for systemLang
 
 /// The system voice to use: the named one, else the highest quality installed for the language.
@@ -282,6 +305,14 @@ final class Reader: NSObject, NSApplicationDelegate, NSWindowDelegate, AVAudioPl
 
     func fetch(_ i: Int) {
         guard i < sentences.count, !stopped else { return }
+        if usePiper {
+            let text = sentences[i]
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let data = piperSynth(text)
+                DispatchQueue.main.async { self?.received(i, data) }
+            }
+            return
+        }
         guard let url = URL(string: ttsURL + "/audio/speech") else { return }
         var req = URLRequest(url: url, timeoutInterval: 60)
         req.httpMethod = "POST"
@@ -290,10 +321,16 @@ final class Reader: NSObject, NSApplicationDelegate, NSWindowDelegate, AVAudioPl
             "model": ttsModel, "input": sentences[i], "voice": ttsVoice, "response_format": "wav",
         ])
         fetchTask = URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
-            DispatchQueue.main.async {
-                guard let self, !self.stopped else { return }
-                let ok = (resp as? HTTPURLResponse)?.statusCode == 200 && (data?.count ?? 0) > 1000
-                if ok, let data {
+            let ok = (resp as? HTTPURLResponse)?.statusCode == 200
+            DispatchQueue.main.async { self?.received(i, ok ? data : nil) }
+        }
+        fetchTask?.resume()
+    }
+
+    /// Audio for sentence i arrived (or failed with nil), from Piper or the TTS server.
+    func received(_ i: Int, _ data: Data?) {
+                guard !self.stopped else { return }
+                if let data, data.count > 1000 {
                     self.audio[i] = data
                     if i == 0 && self.engine == nil {
                         self.waitTimer?.invalidate()
@@ -309,9 +346,6 @@ final class Reader: NSObject, NSApplicationDelegate, NSWindowDelegate, AVAudioPl
                 } else if self.engine == .qwen {
                     self.switchToSystemFrom(i)
                 }
-            }
-        }
-        fetchTask?.resume()
     }
 
     func useSystem() {
@@ -332,7 +366,7 @@ final class Reader: NSObject, NSApplicationDelegate, NSWindowDelegate, AVAudioPl
         guard current < sentences.count else { finished(); return }
         guard headphonesName() != nil else { silent("Ton gestoppt: Kopfhörer getrennt."); return }
         renderText()
-        let label = engine == .qwen ? "Stimme Qwen3 \(ttsVoice)" : "Systemstimme \(systemVoice?.name ?? "?")"
+        let label = engine == .qwen ? (usePiper ? "Stimme Piper " + ((piperModel! as NSString).lastPathComponent.replacingOccurrences(of: ".onnx", with: "")) : "Stimme Qwen3 \(ttsVoice)") : "Systemstimme \(systemVoice?.name ?? "?")"
         setStatus("▶ Satz \(current + 1) von \(sentences.count) · \(label) · \(headphones)")
         switch engine {
         case .qwen:
@@ -382,6 +416,7 @@ if CommandLine.arguments.contains("--check") {
         }.resume()
         _ = sem.wait(timeout: .now() + 3)
     }
+    print("piper:         \(usePiper ? "yes, \(piperModel!)" : "no (set --piper-model / STAND_PIPER_MODEL)")")
     print("tts server:    \(ok ? "answers" : "not reachable -> system voice") (\(ttsURL))")
     print("system voice:  \(systemVoice?.name ?? "none for \(systemLang)") (\(qualityName(systemVoice)))")
     exit(0)
