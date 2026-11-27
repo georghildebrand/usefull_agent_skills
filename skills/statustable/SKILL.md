@@ -1,6 +1,6 @@
 ---
 name: statustable
-description: Use when the user asks for a status table, a status overview, "where do we stand", "what is open", or a summary of all work in a long session that spans several repos, tickets, experiments, pipelines or conversations, and wants to see at a glance what is done, what runs, and what waits for them. Also when they want the status table as a page they can click and comment on.
+description: Use when the user asks for a status table, a status overview, "where do we stand", "what is open", or a summary of all work in a long session that spans several repos, tickets, experiments, pipelines or conversations, and wants to see at a glance what is done, what runs, and what waits for them. The table is always also published as a private page (Artifact) in parallel to the chat reply, so the user can click rows and comment on them.
 ---
 
 # Status table
@@ -12,7 +12,9 @@ next actor in every row. Live facts are checked again before they go in.
 
 1. **One header line:** `Status as of <date> <time> <timezone>. Checked just now: <systems>.`
    If nothing could be checked: `Checked just now: nothing; live rows show the time of the last check.`
-2. **One Markdown table** with the columns `Workstream | Topic | Context | State | Next step / who`.
+2. **One Markdown table** with the columns `# | Workstream | Topic | Context | State | Next step / who`.
+   The `#` column holds the row id and is needed because the page is published
+   by default (see "Page with comments"). Without a page, leave it out.
 3. **Optional notes** between table and waiting line, only when a `**you**` row needs
    more than about 20 words (see rule 7). A short numbered list, at most 3 notes.
 4. **One line:** `Waiting for you: 1. <item> 2. <item> ...`, each item in at most six
@@ -69,20 +71,30 @@ No second table, no separate list of decisions, no "not urgent" section.
    `[/a b/c](</a b/c>)`. Take the path from `git worktree list` or from the
    command that created the worktree. Never shorten it to the branch name, `~`
    or a relative path.
+11. **When a row asks the user to run a command or do a task, give the full location.**
+   The user often reads the table without the session context and does not know
+   where the work lives. In the Next step cell (or the note), name:
+   - the full absolute path of the directory, file or script involved,
+   - the full URL of any page to open,
+   - a ready command to get there, such as `cd /home/dev/worktrees/app/fix-x`,
+     followed by the command to run.
+   Never write "run `make test`" or "open the PR" alone. Write
+   `cd /home/dev/worktrees/app/fix-x && make test`, or the full PR link.
+   Paths in commands are absolute; never use `~` or a relative path.
 
 Write in the user's language; keep the markers and column names.
 
-## Page with comments (optional)
+## Page with comments (default, in parallel to the chat reply)
 
-Use this when the user asks for it: `/statustable page`, "as a page", "so I can
-comment", or the user wants to answer rows by clicking on them. The chat reply
-keeps the format above. The page is an extra copy of the same table on which the
-user selects text in a cell and leaves a comment. In page mode only, the chat
-table also gets the `#` column from step 1, so both tables use the same row ids.
+Every status table is also published as a page, in parallel to the chat reply.
+The chat reply keeps the format above. The page is a copy of the same table on
+which the user selects text in a cell and leaves a comment. Both tables carry
+the `#` column from step 1 and use the same row ids.
 
+Skip the page only when the user asks for chat only ("no page", "chat only").
 If the host has no tool that publishes a private page with comment threads (in
 Claude Code: the `Artifact` tool plus `ArtifactComments`), say so in one line and
-give only the chat reply.
+give only the chat reply, without the `#` column.
 
 1. **Give every row a stable id** in a first column `#`: `R1`, `R2`, ... in the
    order the rows first appear. When you update the page later, an existing row
@@ -157,6 +169,7 @@ Waiting for you: 1. start PR build step 2. WARN as amber 3. go for E8 4. approve
 | A link built from a guessed URL pattern | Take the URL from the tool output, or write `no link: URL not found` |
 | A `**you**` step such as "check lines" that does not say what to check, how, or what the result means | Name the action, the command or link, and what each outcome means; add a numbered note if it needs more than about 20 words |
 | Context with a hook name, masked string or code the reader never saw ("blocked by X hook, match pro****ET!") | Say in plain words what blocked what, why it matters, and whether the cause is verified |
+| A `**you**` step "run the tests" or "open the PR" with no path, URL or `cd` | Give the absolute directory, the full URL, and `cd <absolute path> && <command>` |
 | Worktree named only by branch, or as plain text | Link the full absolute path from `git worktree list` |
 | Page published to a new file path on every update | Reuse the session's path, so the URL and the comment threads stay |
 | Row ids renumbered after an update | An existing row keeps its id; new rows get the next free number |
